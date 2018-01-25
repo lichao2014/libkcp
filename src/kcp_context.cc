@@ -33,7 +33,7 @@ KCPContext::CreateClient(const UDPAddress& addr) {
         return nullptr;
     }
 
-    return std::make_unique<KCPClientAdapter>(client);
+    return std::make_shared<KCPClientAdapter>(client);
 }
 
 std::shared_ptr<KCPServerInterface> 
