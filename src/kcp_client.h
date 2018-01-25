@@ -13,7 +13,7 @@ class KCPClient : public UDPCallback
                 , public KCPClientInterface
                 , public std::enable_shared_from_this<KCPClient> {
 public:
-    static std::shared_ptr<KCPClient> Create(std::shared_ptr<UDPInterface> udp, IOContextInterface& io_ctx);
+    static std::shared_ptr<KCPClient> Create(std::shared_ptr<UDPInterface> udp);
 
     bool Connect(const UDPAddress& to, uint32_t conv, const KCPConfig& config, KCPClientCallback *cb) override;
     bool Write(const char *buf, std::size_t len) override;
@@ -23,13 +23,11 @@ public:
     uint32_t conv() const override { return stream_->conv; }
     ExecutorInterface *executor() override { return udp_->executor(); }
 private:
-    KCPClient(std::shared_ptr<UDPInterface> udp, IOContextInterface& io_ctx)
-        : udp_(udp)
-        , io_ctx_(io_ctx) {}
-
+    explicit KCPClient(std::shared_ptr<UDPInterface> udp) : udp_(udp) {}
     ~KCPClient();
 
     void WriteUDP(const char *buf, std::size_t len);
+    void TryRecvKCP();
 
     // udp callback
     void OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) override;
@@ -43,11 +41,10 @@ private:
 
     KCPStream stream_;
     std::shared_ptr<UDPInterface> udp_;
-    IOContextInterface& io_ctx_;
-    UDPAddress to_;
+    UDPAddress peer_;
     std::vector<char> recv_buf_;
     KCPClientCallback *cb_ = nullptr;
-    bool closed_ = true;;
+    bool closed_ = true;
 };
 
 }

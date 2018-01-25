@@ -13,9 +13,10 @@
 namespace kcp {
 class FakeUDP : public UDPInterface {
 public:
-    void Start(UDPCallback *cb) override;
-    void Stop() override;
+    bool Open(UDPCallback *cb) override;
+    void Close() override;
     bool Send(const UDPAddress& to, const char *buf, size_t len) override;
+    void SetRecvBufSize(size_t recv_size) override {}
     const UDPAddress& local_address() const override;
     ExecutorInterface *executor() override;
 private:

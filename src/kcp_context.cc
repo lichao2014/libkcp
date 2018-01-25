@@ -5,12 +5,8 @@
 using namespace kcp;
 
 //static 
-std::unique_ptr<KCPContextInterface> KCPContextInterface::Create() {
-    return std::make_unique<KCPContext>();
-}
-
-KCPContext::KCPContext()
-    : io_ctx_(IOContextInterface::Create(1)){
+std::unique_ptr<KCPContextInterface> KCPContextInterface::Create(size_t thread_num) {
+    return std::make_unique<KCPContext>(IOContextInterface::Create(thread_num));
 }
 
 void KCPContext::Start() {
@@ -32,7 +28,7 @@ KCPContext::CreateClient(const UDPAddress& addr) {
         return nullptr;
     }
 
-    auto client = udp->executor()->Invoke(KCPClient::Create, udp, *io_ctx_);
+    auto client = udp->executor()->Invoke(KCPClient::Create, udp);
     if (!client) {
         return nullptr;
     }
@@ -47,7 +43,7 @@ KCPContext::CreateServer(const UDPAddress& addr) {
         return nullptr;
     }
 
-    auto server = udp->executor()->Invoke(KCPServer::Create, udp, *io_ctx_);
+    auto server = udp->executor()->Invoke(KCPServer::Create, udp);
     if (!server) {
         return nullptr;
     }

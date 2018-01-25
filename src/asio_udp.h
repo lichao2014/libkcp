@@ -49,6 +49,7 @@ public:
 class IOContextThread : public boost::asio::io_context {
 public:
     IOContextThread() : thread_(), work_(*this) {}
+    ~IOContextThread() { Stop(); }
 
     void Start();
     void Stop();
@@ -73,9 +74,10 @@ class AsioUDP : public UDPInterface
               , public std::enable_shared_from_this<AsioUDP> {
 public:
     // udp interface
-    void Start(UDPCallback *cb) override;
-    void Stop() override;
+    bool Open(UDPCallback *cb) override;
+    void Close() override;
     bool Send(const UDPAddress& to, const char *buf, size_t len) override;
+    void SetRecvBufSize(size_t recv_size) override;
     const UDPAddress& local_address() const override;
     ExecutorInterface *executor() override;
 
@@ -85,11 +87,10 @@ public:
 private:
     friend class AsioIOContext;
 
-    AsioUDP(IOContextThread& io_ctx, size_t recv_size);
-    ~AsioUDP();
+    explicit AsioUDP(std::shared_ptr<IOContextThread> io_ctx);
+    ~AsioUDP() { Close(); }
 
     bool Init(const UDPAddress& addr);
-
     void Write(WriteReq::Ptr req);
     void StartWrite();
     void StartRead();
@@ -99,6 +100,7 @@ private:
 
     std::queue<WriteReq::Ptr> write_req_queue_;
     bool in_writing_ = false;
+    bool closed_ = true;
 
     std::vector<char> recv_buf_;
 
@@ -106,20 +108,21 @@ private:
     mutable boost::asio::ip::udp::socket socket_;
     UDPAddress address_;
 
-    IOContextThread& io_ctx_;
+    std::shared_ptr<IOContextThread> io_ctx_;
     UDPCallback *cb_ = nullptr;
 };
 
 class AsioIOContext : public IOContextInterface {
 public:
     explicit AsioIOContext(size_t thread_num);
+    ~AsioIOContext() { Stop(); }
 
     void Start() override;
     void Stop() override;
     std::shared_ptr<UDPInterface> CreateUDP(const UDPAddress& addr) override;
     ExecutorInterface *executor() override { return nullptr; }
 private:
-    std::vector<IOContextThread> threads_;
+    std::vector<std::shared_ptr<IOContextThread>> threads_;
     std::atomic_size_t select_thread_index_ = 0;
 };
 }

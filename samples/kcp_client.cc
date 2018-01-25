@@ -56,8 +56,8 @@ int main() {
 
     std::cin.get();
 
-    c->Close();
-    s->Stop();
+    //c->Close();
+    //s->Stop();
 
-    ctx->Stop();
+    //ctx->Stop();
 }

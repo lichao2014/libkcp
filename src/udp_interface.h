@@ -16,9 +16,10 @@ class UDPInterface {
 protected:
     virtual ~UDPInterface() = default;
 public:
-    virtual void Start(UDPCallback *cb) = 0;
-    virtual void Stop() = 0;
+    virtual bool Open(UDPCallback *cb) = 0;
+    virtual void Close() = 0;
     virtual bool Send(const UDPAddress& to, const char *buf, size_t len) = 0;
+    virtual void SetRecvBufSize(size_t recv_size) = 0;
     virtual const UDPAddress& local_address() const = 0;
     virtual ExecutorInterface *executor() = 0;
 };

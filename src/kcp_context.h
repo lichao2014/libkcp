@@ -8,10 +8,7 @@
 namespace kcp {
 class KCPContext : public KCPContextInterface {
 public:
-    explicit KCPContext(std::shared_ptr<IOContextInterface> io_ctx) 
-        : io_ctx_(io_ctx) {}
-
-    KCPContext();
+    explicit KCPContext(std::shared_ptr<IOContextInterface> io_ctx) : io_ctx_(io_ctx) {}
 
     void Start() override;
     void Stop() override;

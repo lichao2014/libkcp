@@ -55,7 +55,7 @@ public:
 
 class KCPContextInterface {
 public:
-    static std::unique_ptr<KCPContextInterface> Create();
+    static std::unique_ptr<KCPContextInterface> Create(size_t thread_num = 0);
 
     virtual ~KCPContextInterface() = default;
     virtual void Start() = 0;

@@ -6,8 +6,8 @@ using namespace kcp;
 
 //static 
 std::shared_ptr<KCPClient> 
-KCPClient::Create(std::shared_ptr<UDPInterface> udp, IOContextInterface& io_ctx) {
-    return { new KCPClient(udp, io_ctx),[](KCPClient *p) { delete p; } };
+KCPClient::Create(std::shared_ptr<UDPInterface> udp) {
+    return { new KCPClient(udp), [](KCPClient *p) { delete p; } };
 }
 
 KCPClient::~KCPClient() {
@@ -24,7 +24,7 @@ bool KCPClient::Connect(const UDPAddress& to, uint32_t conv, const KCPConfig& co
     stream_.set_wndsize(config.sndwnd, config.rcvwnd);
     stream_.set_nodelay(config.nodelay ? 1 : 0, config.interval, config.resend, config.nocwnd ? 1 : 0);
 
-    to_ = to;
+    peer_ = to;
     cb_ = cb;
     closed_ = false;
 
@@ -32,9 +32,8 @@ bool KCPClient::Connect(const UDPAddress& to, uint32_t conv, const KCPConfig& co
         return false;
     }
 
-    udp_->Start(this);
-
-    return true;
+    udp_->SetRecvBufSize(config.mtu);
+    return udp_->Open(this);
 }
 
 bool KCPClient::Write(const char *buf, std::size_t len) {
@@ -44,14 +43,15 @@ bool KCPClient::Write(const char *buf, std::size_t len) {
 }
 
 void KCPClient::Close() {
-    if (!closed_) {
-        closed_ = true;
-
-        if (udp_) {
-            udp_->Stop();
-        }
+    if (closed_) {
+        return;
     }
- 
+
+    closed_ = true;
+
+    if (udp_) {
+        udp_->Close();
+    }
 }
 
 const UDPAddress& KCPClient::local_address() const {
@@ -59,17 +59,26 @@ const UDPAddress& KCPClient::local_address() const {
 }
 
 const UDPAddress& KCPClient::remote_address() const {
-    return to_;
+    return peer_;
 }
 
 void KCPClient::WriteUDP(const char *buf, std::size_t len) {
-    if (!udp_->Send(to_, buf, len)) {
+    if (!udp_->Send(peer_, buf, len)) {
         cb_->OnError(1, "write udp failed");
     }
 }
 
+void KCPClient::TryRecvKCP() {
+    int size = 0;
+    while ((size = stream_.peek_size()) > 0) {
+        recv_buf_.resize(size);
+        stream_.Recv(&recv_buf_[0], size);
+        cb_->OnRecvKCP(&recv_buf_[0], size);
+    }
+}
+
 void KCPClient::OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) {
-    if (!(from == to_)) {
+    if (!(from == peer_)) {
         cb_->OnError(1, "from not equal to");
         return;
     }
@@ -79,12 +88,7 @@ void KCPClient::OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) {
         return;
     }
 
-    int kcp_msg_len = 0;
-    while ((kcp_msg_len = stream_.peek_size()) > 0) {
-        recv_buf_.resize(kcp_msg_len);
-        stream_.Recv(&recv_buf_[0], kcp_msg_len);
-        cb_->OnRecvKCP(&recv_buf_[0], kcp_msg_len);
-    }
+    TryRecvKCP();
 }
 
 bool KCPClient::OnError(int err, const char *what) {

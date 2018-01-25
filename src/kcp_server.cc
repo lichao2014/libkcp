@@ -25,13 +25,15 @@ public:
         });
     }
 
-    void Start(UDPCallback *cb) override {
+    bool Open(UDPCallback *cb) override {
         executor()->Invoke([&] {
             cb_ = cb;
         });
+
+        return true;
     }
 
-    void Stop() override {
+    void Close() override {
         executor()->Invoke([this] {
             cb_ = nullptr;
         });
@@ -39,6 +41,10 @@ public:
 
     bool Send(const UDPAddress& to, const char *buf, size_t len) override {
         return executor()->Invoke(&UDPInterface::Send, impl_, to, buf, len);
+    }
+
+    void SetRecvBufSize(size_t recv_size) override {
+
     }
 
     const UDPAddress& local_address() const override {
@@ -57,20 +63,33 @@ private:
 
 //static 
 std::shared_ptr<KCPServer> 
-KCPServer::Create(std::shared_ptr<UDPInterface> udp, IOContextInterface& io_ctx) {
-    return { new KCPServer(udp, io_ctx), [](KCPServer *p) { delete p; } };
+KCPServer::Create(std::shared_ptr<UDPInterface> udp) {
+    return { new KCPServer(udp), [](KCPServer *p) { delete p; } };
+}
+
+KCPServer::~KCPServer() {
+    Stop();
 }
 
 bool KCPServer::Start(KCPServerCallback *cb) {
     cb_ = cb;
-    udp_->Start(this);
-    return true;
+    stopped_ = false;
+    udp_->SetRecvBufSize(kEthMTU);
+    return udp_->Open(this);
 }
 
 void KCPServer::Stop() {
-    if (udp_) {
-        udp_->Stop();
+    if (stopped_) {
+        return;
     }
+
+    stopped_ = true;
+
+    if (udp_) {
+        udp_->Close();
+    }
+
+    clients_.clear();
 }
 
 const UDPAddress& KCPServer::local_address() const {
@@ -84,14 +103,11 @@ void KCPServer::OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) {
 
     uint32_t conv = ParseConv(buf);
 
-    UDPAddress key;
-    key.u64 = from.u64;
-    key.conv = static_cast<uint16_t>(conv);
-
+    UDPAddress key(from, conv);
     auto it = clients_.find(key);
     if (clients_.end() == it) {
         auto adapter = std::make_shared<UDPAdapter>(udp_, shared_from_this(), key);
-        if (!cb_->OnAccept(KCPClient::Create(adapter, io_ctx_), from, conv)) {
+        if (!cb_->OnAccept(KCPClient::Create(adapter), from, conv)) {
             return;
         }
 
@@ -104,4 +120,3 @@ void KCPServer::OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) {
 bool KCPServer::OnError(int err, const char *what) {
     return true;
 }
-

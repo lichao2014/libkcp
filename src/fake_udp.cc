@@ -11,11 +11,12 @@ uint32_t Now32() {
 
 using namespace kcp;
 
-void FakeUDP::Start(UDPCallback *cb) {
+bool FakeUDP::Open(UDPCallback *cb) {
     cb_ = cb;
+    return true;
 }
 
-void FakeUDP::Stop() {
+void FakeUDP::Close() {
     cb_ = nullptr;
 }
 
@@ -51,15 +52,15 @@ void FakeIOContext::Stop() {
 }
 
 std::shared_ptr<UDPInterface> 
-FakeIOContext::CreateUDP(const UDPAddress& local) {
+FakeIOContext::CreateUDP(const UDPAddress& addr) {
     std::unique_lock<std::mutex> guard(udps_mu_);
 
-    if (udps_.end() != udps_.find(local)) {
+    if (udps_.end() != udps_.find(addr)) {
         return nullptr;
     }
 
     std::shared_ptr<FakeUDP> udp {
-        new FakeUDP(this, local),
+        new FakeUDP(this, addr),
 
         [sp = shared_from_this()](FakeUDP *p) {
             std::unique_lock<std::mutex> guard(sp->udps_mu_);
@@ -68,7 +69,7 @@ FakeIOContext::CreateUDP(const UDPAddress& local) {
         }
     };
 
-    udps_.emplace(local, udp.get());
+    udps_.emplace(addr, udp.get());
 
     return udp;
 }
