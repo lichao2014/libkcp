@@ -1,65 +1,7 @@
 #include "kcp_server.h"
-#include "kcp_client.h"
+#include "kcp_client_adapter.h"
 
 using namespace kcp;
-
-namespace {
-uint32_t ParseConv(const char buf[4]) {
-    return buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24);
-}
-}
-
-class KCPServer::UDPAdapter : public UDPInterface {
-public:
-    UDPAdapter(std::shared_ptr<UDPInterface> impl, std::shared_ptr<KCPServer> server, const UDPAddress& key)
-        : impl_(impl)
-        , server_(server)
-        , key_(key) {}
-
-    ~UDPAdapter() {
-        executor()->Invoke([this] {
-            server_->clients_.erase(key_);
-
-            server_.reset();
-            impl_.reset();
-        });
-    }
-
-    bool Open(UDPCallback *cb) override {
-        executor()->Invoke([&] {
-            cb_ = cb;
-        });
-
-        return true;
-    }
-
-    void Close() override {
-        executor()->Invoke([this] {
-            cb_ = nullptr;
-        });
-    }
-
-    bool Send(const UDPAddress& to, const char *buf, size_t len) override {
-        return executor()->Invoke(&UDPInterface::Send, impl_, to, buf, len);
-    }
-
-    void SetRecvBufSize(size_t recv_size) override {
-
-    }
-
-    const UDPAddress& local_address() const override {
-        return impl_->local_address();
-    }
-
-    ExecutorInterface *executor() override { return impl_->executor(); }
-private:
-    friend class KCPServer;
-
-    std::shared_ptr<UDPInterface> impl_;
-    std::shared_ptr<KCPServer> server_;
-    UDPAddress key_;
-    UDPCallback *cb_ = nullptr;
-};
 
 //static 
 std::shared_ptr<KCPServer> 
@@ -72,10 +14,15 @@ KCPServer::~KCPServer() {
 }
 
 bool KCPServer::Start(KCPServerCallback *cb) {
+    if (!udp_->Open(1024 * 64, this)) {
+        return false;
+    }
+
     cb_ = cb;
     stopped_ = false;
-    udp_->SetRecvBufSize(kEthMTU);
-    return udp_->Open(this);
+    proxy_ = KCPProxy::Create(udp_);
+
+    return true;
 }
 
 void KCPServer::Stop() {
@@ -88,35 +35,60 @@ void KCPServer::Stop() {
     if (udp_) {
         udp_->Close();
     }
-
-    clients_.clear();
 }
 
 const UDPAddress& KCPServer::local_address() const {
     return udp_->local_address();
 }
 
-void KCPServer::OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) {
-    if (len < 4) {
+void KCPServer::OnRecvUDP(const UDPAddress& from, const char *buf, size_t len) {
+    if (stopped_) {
         return;
     }
 
-    uint32_t conv = ParseConv(buf);
+    assert(proxy_);
 
-    UDPAddress key(from, conv);
-    auto it = clients_.find(key);
-    if (clients_.end() == it) {
-        auto adapter = std::make_shared<UDPAdapter>(udp_, shared_from_this(), key);
-        if (!cb_->OnAccept(KCPClient::Create(adapter), from, conv)) {
-            return;
-        }
+    uint32_t conv;
+    switch (proxy_->RecvUDP(from, buf, len, &conv)) {
+    case KCPProxy::kNotFound:
+        OnNewClient(from, conv, buf, len);
+        break;
+    case KCPProxy::kSuccess:
+        break;
+    case KCPProxy::kBadMsg:
+    default:
+        OnError(MakeErrorCode(ErrNum::kBadUDPMsg));
+        break;
+    }
+}
 
-        it = clients_.emplace(key, adapter.get()).first;
+void KCPServer::OnNewClient(const UDPAddress& from, 
+                            uint32_t conv, 
+                            const char *buf, 
+                            size_t len) {
+    if (!cb_) {
+        return;
     }
 
-    it->second->cb_->OnRecvUdp(from, buf, len);
+    UDPAddress key(from, conv);
+    auto udp = proxy_->AddFilter(key);
+    if (!udp) {
+        return;
+    }
+
+    auto client = std::make_shared<KCPClientAdapter>(KCPClient::Create(udp));
+    if (!cb_->OnAccept(client, from, conv)) {
+        return;
+    }
+
+    proxy_->RecvUDP(from, buf, len, &conv);
 }
 
-bool KCPServer::OnError(int err, const char *what) {
-    return true;
+bool KCPServer::OnError(const std::error_code& ec) {
+    if (!cb_) {
+        return true;
+    }
+
+    return cb_->OnError(ec);
 }
+

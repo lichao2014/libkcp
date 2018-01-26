@@ -1,33 +1,27 @@
 #ifndef _KCP_INTERFACE_H_INCLUDED
 #define _KCP_INTERFACE_H_INCLUDED
 
+#include <system_error>
+
 #include "common_types.h"
 
 namespace kcp {
-struct KCPConfig {
-    int mtu = kKCPMTUDefault;
-    int interval = 10;
-    int resend = 2;
-    int min_rto = 10;
-    int sndwnd = 32;
-    int rcvwnd = 32;
-    bool nodelay = true;
-    bool nocwnd = false;
-};
-
 class KCPClientCallback {
 protected:
     virtual ~KCPClientCallback() = default;
 public:
     virtual void OnRecvKCP(const char *buf, size_t size) = 0;
-    virtual void OnError(int err, const char *what) = 0;
+    virtual bool OnError(const std::error_code& ec) = 0;
 };
 
 class KCPClientInterface {
 protected:
     virtual ~KCPClientInterface() = default;
 public:
-    virtual bool Connect(const UDPAddress& to, uint32_t conv, const KCPConfig& config, KCPClientCallback *cb) = 0;
+    virtual bool Connect(const UDPAddress& to, 
+                         uint32_t conv, 
+                         const KCPConfig& config, 
+                         KCPClientCallback *cb) = 0;
     virtual bool Write(const char *buf, std::size_t len) = 0;
     virtual void Close() = 0;
     virtual const UDPAddress& local_address() const = 0;
@@ -40,7 +34,10 @@ class KCPServerCallback {
 protected:
     virtual ~KCPServerCallback() = default;
 public:
-    virtual bool OnAccept(std::shared_ptr<KCPClientInterface> client, const UDPAddress& from, uint32_t conv) = 0;
+    virtual bool OnAccept(std::shared_ptr<KCPClientInterface> client, 
+                          const UDPAddress& from, 
+                          uint32_t conv) = 0;
+    virtual bool OnError(const std::error_code& ec) = 0;
 };
 
 class KCPServerInterface {

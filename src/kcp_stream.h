@@ -3,12 +3,15 @@
 
 #include <memory>
 #include <cstdint>
-#include <list>
 
 #include "ikcp.h"
 
+#include "udp_interface.h"
+#include "kcp_interface.h"
+#include "kcp_error.h"
+
 namespace kcp {
-class KCPStream : public std::shared_ptr<ikcpcb> {
+class KCPAPI : public std::shared_ptr<ikcpcb> {
 public:
     using std::shared_ptr<ikcpcb>::shared_ptr;
 
@@ -67,6 +70,56 @@ public:
 
         return kcp;
     }
+};
+
+class KCPStream : public UDPCallback
+                , public TaskInterface
+                , public std::enable_shared_from_this<KCPStream> {
+public:
+    static std::shared_ptr<KCPStream> Create(std::shared_ptr<UDPInterface> udp,
+                                             const UDPAddress& peer,
+                                             uint32_t conv,
+                                             const KCPConfig& config);
+
+    bool Open(KCPClientCallback *cb) ;
+    bool Write(const char *buf, std::size_t len);
+    void Close();
+    const UDPAddress& peer() const { return peer_; }
+    uint32_t conv() const { return api_->conv; }
+private:
+    explicit KCPStream(std::shared_ptr<UDPInterface> udp,
+                       const UDPAddress& peer,
+                       uint32_t conv,
+                       const KCPConfig& config)
+        : udp_(udp)
+        , peer_(peer)
+        , conv_(conv)
+        , config_(config) {}
+
+    ~KCPStream();
+
+    void WriteUDP(const char *buf, std::size_t len);
+    void TryRecvKCP();
+    bool OnKCPError(ErrNum err);
+
+    // udp callback
+    void OnRecvUDP(const UDPAddress& from, const char *buf, size_t len) override;
+    bool OnError(const std::error_code& ec) override;
+
+    // task callback
+    uint32_t OnRun(uint32_t now, bool cancel) override;
+
+    // kcp output
+    static int KCPOutput(const char *buf, int len, struct IKCPCB *kcp, void *user);
+
+    KCPAPI api_;
+    std::shared_ptr<UDPInterface> udp_;
+    UDPAddress peer_;
+    uint32_t conv_;
+    KCPConfig config_;
+    std::vector<char> recv_buf_;
+    KCPClientCallback *cb_ = nullptr;
+    bool closed_ = true;
 };
 }
 

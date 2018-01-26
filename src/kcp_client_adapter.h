@@ -10,11 +10,15 @@ public:
 
     ~KCPClientAdapter() {
         executor()->Invoke([&] {
+            impl_->Close();
             impl_.reset();
         });
     }
 
-    bool Connect(const UDPAddress& to, uint32_t conv, const KCPConfig& config, KCPClientCallback *cb) override {
+    bool Connect(const UDPAddress& to, 
+                 uint32_t conv, 
+                 const KCPConfig& config, 
+                 KCPClientCallback *cb) override {
         return executor()->Invoke(&KCPClient::Connect, impl_, to, conv, config, cb);
     }
 

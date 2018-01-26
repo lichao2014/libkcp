@@ -1,6 +1,19 @@
 #include "kcp_interface.h"
 
 #include <cassert>
+#include <chrono>
+
+namespace kcp {
+uint64_t Now64() {
+    using namespace std::chrono;
+    return duration_cast<milliseconds>(
+        high_resolution_clock::now().time_since_epoch()).count();
+}
+
+uint32_t Now32() {
+    return static_cast<uint32_t>(Now64());
+}
+}
 
 using namespace kcp;
 
@@ -40,6 +53,3 @@ UDPAddress::UDPAddress(const char *ip4, uint16_t port, uint16_t conv)
 std::string UDPAddress::ip4_string() const {
     return IP4ToString(ip4);
 }
-
-
-

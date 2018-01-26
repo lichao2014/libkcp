@@ -25,11 +25,13 @@ public:
     const char *buf() const { return data + offset; }
     size_t len() const { return size - offset; }
 
-    static Ptr New(const boost::asio::ip::udp::endpoint& peer, const char *buf, std::size_t len) {
+    static Ptr New(const boost::asio::ip::udp::endpoint& peer, 
+                   const char *buf, std::size_t len) {
         return { NewRaw(peer, buf, len), &WriteReq::FreeRaw };
     }
 
-    static WriteReq *NewRaw(const boost::asio::ip::udp::endpoint& peer, const char *buf, std::size_t len) {
+    static WriteReq *NewRaw(const boost::asio::ip::udp::endpoint& peer, 
+                            const char *buf, std::size_t len) {
         WriteReq *req = reinterpret_cast<WriteReq *>(malloc(sizeof(WriteReq) + len));
         if (req) {
             req->peer = peer;
@@ -46,7 +48,8 @@ public:
     }
 };
 
-class IOContextThread : public boost::asio::io_context {
+class IOContextThread : public boost::asio::io_context
+                      , public ExecutorInterface {
 public:
     IOContextThread() : thread_(), work_(*this) {}
     ~IOContextThread() { Stop(); }
@@ -54,36 +57,30 @@ public:
     void Start();
     void Stop();
 
-    void AddDelayTask(void *key, uint32_t delay, std::shared_ptr<TaskInterface> task);
-    void DelDelayTask(void *key);
-
-    bool IsCurrentThread() const;
+    // executor interface
+    bool IsCurrentThread() const override;
+    bool DispatchTask(void *key, std::shared_ptr<TaskInterface> task) override;
+    void CancelTask(void *key) override;
 private:
-    uint32_t RunDelayTasks();
-    void ClearDelayTasks();
+    uint32_t RunTasks();
+    void ClearTasks();
 
     std::thread thread_;
     boost::asio::io_context::work work_;
 
     using TaskKeyPair = std::pair<void *, std::shared_ptr<TaskInterface>>;
-    std::multimap<uint32_t, TaskKeyPair> delay_tasks_;
+    std::multimap<uint32_t, TaskKeyPair> tasks_;
 };
 
 class AsioUDP : public UDPInterface
-              , public ExecutorInterface
               , public std::enable_shared_from_this<AsioUDP> {
 public:
     // udp interface
-    bool Open(UDPCallback *cb) override;
+    bool Open(size_t recv_size, UDPCallback *cb) override;
     void Close() override;
     bool Send(const UDPAddress& to, const char *buf, size_t len) override;
-    void SetRecvBufSize(size_t recv_size) override;
     const UDPAddress& local_address() const override;
     ExecutorInterface *executor() override;
-
-    // executor interface
-    bool IsCurrentThread() const override;
-    bool DispatchTask(std::shared_ptr<TaskInterface> task) override;
 private:
     friend class AsioIOContext;
 
@@ -114,14 +111,16 @@ private:
 
 class AsioIOContext : public IOContextInterface {
 public:
-    explicit AsioIOContext(size_t thread_num);
-    ~AsioIOContext() { Stop(); }
+    static std::shared_ptr<AsioIOContext> Create(size_t thread_num);
 
     void Start() override;
     void Stop() override;
     std::shared_ptr<UDPInterface> CreateUDP(const UDPAddress& addr) override;
     ExecutorInterface *executor() override { return nullptr; }
 private:
+    explicit AsioIOContext(size_t thread_num);
+    ~AsioIOContext() { Stop(); }
+
     std::vector<std::shared_ptr<IOContextThread>> threads_;
     std::atomic_size_t select_thread_index_ = 0;
 };

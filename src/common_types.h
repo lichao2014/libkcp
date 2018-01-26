@@ -15,6 +15,17 @@ constexpr size_t kUDPHeadSize = 8;
 constexpr size_t kKCPHeadSize = 24;
 constexpr size_t kKCPMTUDefault = kEthMTU - kIPHeaderSize - kUDPHeadSize - kKCPHeadSize;
 
+struct KCPConfig {
+    int mtu = kKCPMTUDefault;
+    int interval = 10;
+    int resend = 2;
+    int min_rto = 10;
+    int sndwnd = 32;
+    int rcvwnd = 32;
+    bool nodelay = true;
+    bool nocwnd = false;
+};
+
 union UDPAddress {
     uint64_t u64;
 
@@ -75,7 +86,8 @@ private:
 
 template<typename Fn, typename ... Args>
 auto NewTask(Fn&& fn, Args&& ... args) {
-     return std::make_shared<FunctionTask<Fn(Args...)>>(std::forward<Fn>(fn), std::forward<Args>(args)...);
+     return std::make_shared<FunctionTask<Fn(Args...)>>(
+         std::forward<Fn>(fn), std::forward<Args>(args)...);
 }
 
 class ExecutorInterface {
@@ -83,11 +95,14 @@ protected:
     virtual ~ExecutorInterface() = default;
 public:
     virtual bool IsCurrentThread() const = 0;
-    virtual bool DispatchTask(std::shared_ptr<TaskInterface> task) = 0;
+    virtual bool DispatchTask(void *key, std::shared_ptr<TaskInterface> task) = 0;
+    virtual void CancelTask(void *key) = 0;
 
     template<typename Fn, typename ... Args>
     void Post(Fn&& fn, Args&& ... args) {
-        if (!DispatchTask(NewTask(std::forward<Fn>(fn), std::forward<Args>(args)...))) {
+        if (!DispatchTask(nullptr, 
+                          NewTask(std::forward<Fn>(fn), 
+                          std::forward<Args>(args)...))) {
             throw std::logic_error("executor disaptch failed");
         }
     }
@@ -119,7 +134,8 @@ public:
 
         std::promise<std::result_of_t <Fn(Args...)>> promise;
         Post([&] {
-            promise.set_value(std::invoke(std::forward<Fn>(fn), std::forward<Args>(args)...));
+            promise.set_value(std::invoke(std::forward<Fn>(fn), 
+                                          std::forward<Args>(args)...));
         });
 
         return promise.get_future().get();

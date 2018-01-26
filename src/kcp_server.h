@@ -1,10 +1,8 @@
 #ifndef _KCP_SERVER_H_INCLUDED
 #define _KCP_SERVER_H_INCLUDED
 
-#include <map>
-
 #include "kcp_interface.h"
-#include "kcp_stream.h"
+#include "kcp_proxy.h"
 #include "udp_interface.h"
 
 namespace kcp {
@@ -22,15 +20,16 @@ private:
     explicit KCPServer(std::shared_ptr<UDPInterface> udp) : udp_(udp) {};
     ~KCPServer();
 
+    void OnNewClient(const UDPAddress& from, uint32_t conv, const char *buf, size_t len);
+
     // udp callback
-    void OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) override;
-    bool OnError(int err, const char *what) override;
+    void OnRecvUDP(const UDPAddress& from, const char *buf, size_t len) override;
+    bool OnError(const std::error_code& ec) override;
 
     std::shared_ptr<UDPInterface> udp_;
-    KCPServerCallback *cb_ = nullptr;
+    std::shared_ptr<KCPProxy> proxy_;
 
-    class UDPAdapter;
-    std::map<UDPAddress, UDPAdapter *> clients_;
+    KCPServerCallback *cb_ = nullptr;
 
     bool stopped_ = true;
 };

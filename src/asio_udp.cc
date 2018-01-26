@@ -1,14 +1,11 @@
 #include "asio_udp.h"
 
-#include <map>
-#include <iostream>
-
 using namespace kcp;
 
 namespace {
 bool Address2Endpoint(const UDPAddress& from, boost::asio::ip::udp::endpoint& to) {
     try {
-        to.address(boost::asio::ip::make_address_v4(from.ip4_string()));
+        to.address(boost::asio::ip::address_v4(htonl(from.ip4)));
         to.port(from.port);
     } catch (...) {
         return false;
@@ -17,38 +14,49 @@ bool Address2Endpoint(const UDPAddress& from, boost::asio::ip::udp::endpoint& to
     return true;
 }
 
-bool Endpoint2Address(const boost::asio::ip::udp::endpoint& from, UDPAddress& to) {
-    try {
-        to.ip4 = from.address().to_v4().to_uint();
-        to.port = from.port();
-    } catch (...) {
-        return false;
+void Endpoint2Address(const boost::asio::ip::udp::endpoint& from, UDPAddress& to) {
+    to.ip4 = ntohl(from.address().to_v4().to_uint());
+    to.port = from.port();
+}
+
+class BoostErrorCategory : public std::error_category {
+public:
+    explicit BoostErrorCategory(const boost::system::error_category& category)
+        : category_(category) {}
+
+    const char *name() const noexcept {
+        return category_.name();
     }
 
-    return true;
-}
+    std::string message(int err) const {
+        return category_.message(err);
+    }
+
+private:
+    const boost::system::error_category& category_;
+};
 }
 
 //static 
 std::shared_ptr<IOContextInterface>
 IOContextInterface::Create(size_t thread_num) {
-    return std::make_shared<AsioIOContext>(thread_num);
+    return AsioIOContext::Create(thread_num);
 }
 
 void IOContextThread::Start() {
     thread_ = std::thread([this] {
         while (!stopped()) {
-            uint32_t delay = RunDelayTasks();
+            uint32_t delay = RunTasks();
             if (0 == delay) {
                 run_one();
-            } else if (delay < 10) {
+            } else if (delay < 8) {
                 poll();
             } else {
                 run_for(std::chrono::milliseconds(delay));
             }
         }
 
-        ClearDelayTasks();
+        ClearTasks();
     });
 }
 
@@ -64,19 +72,30 @@ void IOContextThread::Stop() {
     }
 }
 
-void IOContextThread::AddDelayTask(void *key, uint32_t delay, std::shared_ptr<TaskInterface> task) {
-    boost::asio::dispatch(*this, [key, now = Now32() + delay, task, this]{
-        delay_tasks_.emplace(now, std::make_pair(key, task));
-        });
+bool IOContextThread::IsCurrentThread() const {
+    return stopped() || thread_.get_id() == std::this_thread::get_id();
 }
 
-void IOContextThread::DelDelayTask(void *key) {
+bool IOContextThread::DispatchTask(void *key, 
+                                   std::shared_ptr<TaskInterface> task) {
+    boost::asio::dispatch(*this, [key, task, this]{
+        uint32_t now = Now32();
+        uint32_t delay = task->OnRun(now, false);
+        if (TaskInterface::kNotContinue != delay) {
+            tasks_.emplace(now + delay, std::make_pair(key, task));
+        }
+    });
+
+    return true;
+}
+
+void IOContextThread::CancelTask(void *key) {
     boost::asio::dispatch(*this, [key, this] {
-        auto it = delay_tasks_.begin();
-        while (delay_tasks_.end() != it) {
+        auto it = tasks_.begin();
+        while (tasks_.end() != it) {
             if (it->second.first == key) {
                 it->second.second->OnRun(0, true);
-                it = delay_tasks_.erase(it);
+                it = tasks_.erase(it);
             } else {
                 ++it;
             }
@@ -84,43 +103,36 @@ void IOContextThread::DelDelayTask(void *key) {
     });
 }
 
-bool IOContextThread::IsCurrentThread() const {
-    return stopped() || thread_.get_id() == std::this_thread::get_id();
-}
-
-uint32_t IOContextThread::RunDelayTasks() {
+uint32_t IOContextThread::RunTasks() {
     uint32_t now = Now32();
 
-    while (!delay_tasks_.empty()) {
-        auto task = delay_tasks_.begin()->second;
-        if (now < delay_tasks_.begin()->first) {
-            return delay_tasks_.begin()->first - now;
+    while (!tasks_.empty()) {
+        auto task = tasks_.begin()->second;
+        if (now < tasks_.begin()->first) {
+            return tasks_.begin()->first - now;
         }
 
-        delay_tasks_.erase(delay_tasks_.begin());
+        tasks_.erase(tasks_.begin());
 
         uint32_t delay = task.second->OnRun(now, false);
         if (TaskInterface::kNotContinue != delay) {
-            delay_tasks_.emplace(now + delay, task);
+            tasks_.emplace(now + delay, task);
         }
     }
 
     return 0;
 }
 
-void IOContextThread::ClearDelayTasks() {
-    for (auto && task : delay_tasks_) {
+void IOContextThread::ClearTasks() {
+    for (auto && task : tasks_) {
         task.second.second->OnRun(0, true);
     }
 
-    delay_tasks_.clear();
+    tasks_.clear();
 }
 
-bool AsioUDP::Open(UDPCallback *cb) {
-    if (recv_buf_.empty()) {
-        return false;
-    }
-
+bool AsioUDP::Open(size_t recv_size, UDPCallback *cb) {
+    recv_buf_.resize(recv_size);
     cb_ = cb;
     closed_ = false;
 
@@ -129,6 +141,11 @@ bool AsioUDP::Open(UDPCallback *cb) {
 }
 
 void AsioUDP::Close() {
+    if (socket_.is_open()) {
+        socket_.shutdown(boost::asio::socket_base::shutdown_send);
+        socket_.close();
+    }
+
     if (closed_) {
         return;
     }
@@ -136,10 +153,7 @@ void AsioUDP::Close() {
     closed_ = true;
     cb_ = nullptr;
 
-    socket_.shutdown(boost::asio::socket_base::shutdown_send);
-    socket_.close();
-
-    io_ctx_->DelDelayTask(this);
+    io_ctx_->CancelTask(this);
 }
 
 bool AsioUDP::Send(const UDPAddress& to, const char *buf, size_t len) {
@@ -153,32 +167,12 @@ bool AsioUDP::Send(const UDPAddress& to, const char *buf, size_t len) {
     return true;
 }
 
-void AsioUDP::SetRecvBufSize(size_t recv_size) {
-    recv_buf_.resize(recv_size);
-}
-
 const UDPAddress& AsioUDP::local_address() const {
     return address_;
 }
 
 ExecutorInterface *AsioUDP::executor() {
-    return this;
-}
-
-// executor interface
-bool AsioUDP::IsCurrentThread() const {
-    return io_ctx_->IsCurrentThread();
-}
-
-bool AsioUDP::DispatchTask(std::shared_ptr<TaskInterface> task) {
-    boost::asio::dispatch(socket_.get_executor(), [this, task] {
-        uint32_t delay = task->OnRun(Now32(), false);
-        if (TaskInterface::kNotContinue != delay) {
-            io_ctx_->AddDelayTask(this, delay, task);
-        }
-    });
-
-    return true;
+    return io_ctx_.get();
 }
 
 AsioUDP::AsioUDP(std::shared_ptr<IOContextThread> io_ctx)
@@ -267,7 +261,7 @@ void AsioUDP::ReadCallback(std::size_t bytes_transferred) {
     UDPAddress from;
     Endpoint2Address(peer_, from);
 
-    cb_->OnRecvUdp(from, recv_buf_.data(), bytes_transferred);
+    cb_->OnRecvUDP(from, recv_buf_.data(), bytes_transferred);
     StartRead();
 }
 
@@ -276,7 +270,13 @@ bool AsioUDP::ErrorCallback(const boost::system::error_code& ec) {
         return true;
     }
 
-    return cb_->OnError(ec.value(), ec.message().c_str());
+    return cb_->OnError({ ec.value(), BoostErrorCategory(ec.category()) });
+}
+
+// static 
+std::shared_ptr<AsioIOContext> 
+AsioIOContext::Create(size_t thread_num) {
+    return { new AsioIOContext(thread_num), [](auto *p) { delete p; } };
 }
 
 AsioIOContext::AsioIOContext(size_t thread_num) {

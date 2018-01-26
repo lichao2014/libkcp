@@ -10,6 +10,7 @@ public:
 
     ~KCPServerAdapter() {
         executor()->Invoke([this] {
+            impl_->Stop();
             impl_.reset();
         });
     }

@@ -6,47 +6,32 @@
 #include "kcp_interface.h"
 #include "udp_interface.h"
 #include "kcp_stream.h"
+#include "kcp_error.h"
 
 namespace kcp {
-class KCPClient : public UDPCallback
-                , public TaskInterface
-                , public KCPClientInterface
-                , public std::enable_shared_from_this<KCPClient> {
+class KCPClient : public KCPClientInterface {
 public:
     static std::shared_ptr<KCPClient> Create(std::shared_ptr<UDPInterface> udp);
 
-    bool Connect(const UDPAddress& to, uint32_t conv, const KCPConfig& config, KCPClientCallback *cb) override;
+    bool Connect(const UDPAddress& to,
+                 uint32_t conv,
+                 const KCPConfig& config,
+                 KCPClientCallback *cb) override;
     bool Write(const char *buf, std::size_t len) override;
     void Close() override;
     const UDPAddress& local_address() const override;
     const UDPAddress& remote_address() const override;
-    uint32_t conv() const override { return stream_->conv; }
-    ExecutorInterface *executor() override { return udp_->executor(); }
+    uint32_t conv() const override;
+    ExecutorInterface *executor() override;
 private:
-    explicit KCPClient(std::shared_ptr<UDPInterface> udp) : udp_(udp) {}
-    ~KCPClient();
+    explicit KCPClient(std::shared_ptr<UDPInterface> udp)
+        : udp_(udp) {}
 
-    void WriteUDP(const char *buf, std::size_t len);
-    void TryRecvKCP();
+    ~KCPClient() = default;
 
-    // udp callback
-    void OnRecvUdp(const UDPAddress& from, const char *buf, size_t len) override;
-    bool OnError(int err, const char *what) override;
-
-    // task callback
-    uint32_t OnRun(uint32_t now, bool cancel) override;
-
-    // kcp output
-    static int KCPOutput(const char *buf, int len, struct IKCPCB *kcp, void *user);
-
-    KCPStream stream_;
+    std::shared_ptr<KCPStream> stream_;
     std::shared_ptr<UDPInterface> udp_;
-    UDPAddress peer_;
-    std::vector<char> recv_buf_;
-    KCPClientCallback *cb_ = nullptr;
-    bool closed_ = true;
 };
-
 }
 
 #endif // !_KCP_CLIENT_H_INCLUDED
