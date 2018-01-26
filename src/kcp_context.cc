@@ -1,11 +1,12 @@
 #include "kcp_context.h"
-#include "kcp_client_adapter.h"
-#include "kcp_server_adapter.h"
+#include "kcp_client.h"
+#include "kcp_server.h"
 
 using namespace kcp;
 
 //static 
-std::unique_ptr<KCPContextInterface> KCPContextInterface::Create(size_t thread_num) {
+std::unique_ptr<KCPContextInterface> 
+KCPContextInterface::Create(size_t thread_num) {
     return std::make_unique<KCPContext>(IOContextInterface::Create(thread_num));
 }
 

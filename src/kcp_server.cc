@@ -1,5 +1,5 @@
 #include "kcp_server.h"
-#include "kcp_client_adapter.h"
+#include "kcp_client.h"
 
 using namespace kcp;
 

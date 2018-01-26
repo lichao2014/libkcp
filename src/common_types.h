@@ -37,9 +37,9 @@ union UDPAddress {
 
     constexpr UDPAddress() : u64(0) {}
 
-    constexpr UDPAddress(const UDPAddress& addr, uint16_t conv = 0)
+    constexpr UDPAddress(const UDPAddress& addr, uint16_t u16)
         : u64(addr.u64)
-        , conv(conv) {}
+        , conv(u16) {}
 
     constexpr bool operator <(const UDPAddress& rhs) const {
         return u64 < rhs.u64;

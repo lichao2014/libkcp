@@ -32,6 +32,10 @@ public:
     }
 
     ExecutorInterface *executor() override {
+        if (executor_) {
+            return executor_;
+        }
+
         return  proxy_->udp_->executor();
     }
 private:
@@ -40,10 +44,12 @@ private:
     std::shared_ptr<KCPProxy> proxy_;
     UDPAddress key_;
     UDPCallback *cb_ = nullptr;
+    ExecutorInterface *executor_ = nullptr;
 };
 
 //static 
-std::shared_ptr<KCPProxy> KCPProxy::Create(std::shared_ptr<UDPInterface> udp) {
+std::shared_ptr<KCPProxy> 
+KCPProxy::Create(std::shared_ptr<UDPInterface> udp) {
     return { new KCPProxy(udp), [](KCPProxy *p) { delete p; } };
 }
 

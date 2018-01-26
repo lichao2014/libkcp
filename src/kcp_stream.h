@@ -85,7 +85,7 @@ public:
     bool Write(const char *buf, std::size_t len);
     void Close();
     const UDPAddress& peer() const { return peer_; }
-    uint32_t conv() const { return api_->conv; }
+    uint32_t conv() const { return conv_; }
 private:
     explicit KCPStream(std::shared_ptr<UDPInterface> udp,
                        const UDPAddress& peer,

@@ -3,13 +3,9 @@
 #include "kcp_interface.h"
 
 
-class KCPServerCallback : public kcp::KCPServerCallback, public kcp::KCPClientCallback {
+class KCPClientCallback : public kcp::KCPClientCallback {
 public:
-    bool OnAccept(std::shared_ptr<kcp::KCPClientInterface> client, const kcp::UDPAddress& from, uint32_t conv) override {
-        client_ = client;
-        std::clog << "incoming a client from=" << from.ip4_string() << ',' << from.port << ",conv=" << conv << std::endl;
-        return client->Connect(from, conv, {}, this);
-    }
+    KCPClientCallback(std::shared_ptr<kcp::KCPClientInterface> client) : client_(client) {}
 
     void OnRecvKCP(const char *buf, size_t size) override {
         static int cnt = 0;
@@ -22,18 +18,41 @@ public:
         std::cerr << "OnError:ec=" << ec.category().name() << ',' << ec.message() << std::endl;
         return false;
     }
-
+private:
     std::shared_ptr<kcp::KCPClientInterface> client_;
 };
 
-int main() {
-    KCPServerCallback server_callback;
+class KCPServerCallback : public kcp::KCPServerCallback {
+public:
+    KCPServerCallback(kcp::KCPContextInterface *ctx, const kcp::UDPAddress& a)
+        : server_(ctx->CreateServer(a)) {}
 
+    void Start() {
+        server_->Start(this);
+    }
+
+    bool OnAccept(std::shared_ptr<kcp::KCPClientInterface> client, const kcp::UDPAddress& from, uint32_t conv) override {
+        clients_.emplace_back(client);
+        std::clog << "incoming a client from=" << from.ip4_string() << ',' << from.port << ",conv=" << conv << std::endl;
+        return client->Connect(from, conv, {}, &clients_.back());
+    }
+
+    bool OnError(const std::error_code& ec) override {
+        std::cerr << "OnError:ec=" << ec.category().name() << ',' << ec.message() << std::endl;
+        return false;
+    }
+private:
+    std::shared_ptr<kcp::KCPServerInterface> server_;
+    std::vector<KCPClientCallback> clients_;
+};
+
+int main() {
     auto ctx = kcp::KCPContextInterface::Create();
     ctx->Start();
 
-    auto s = ctx->CreateServer({ "127.0.0.1", 1234 });
-    s->Start(&server_callback);
+    KCPServerCallback server(ctx.get(), { "127.0.0.1", 1234 });
+
+    server.Start();
 
     std::cin.get();
 }

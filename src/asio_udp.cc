@@ -303,10 +303,8 @@ void AsioIOContext::Stop() {
 
 std::shared_ptr<UDPInterface>
 AsioIOContext::CreateUDP(const UDPAddress& addr) {
-    auto index = select_thread_index_++;
-
     std::shared_ptr<AsioUDP> udp{
-        new AsioUDP(threads_[index % threads_.size()]),
+        new AsioUDP(SelectIOThread()),
         [](AsioUDP *p) { delete p; }
     };
 
@@ -315,4 +313,13 @@ AsioIOContext::CreateUDP(const UDPAddress& addr) {
     }
 
     return udp;
+}
+
+ExecutorInterface *AsioIOContext::executor() {
+    return SelectIOThread().get();
+}
+
+const std::shared_ptr<IOContextThread>& 
+AsioIOContext::SelectIOThread() {
+    return threads_[select_thread_index_++ % threads_.size()];
 }

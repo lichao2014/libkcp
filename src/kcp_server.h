@@ -33,6 +33,37 @@ private:
 
     bool stopped_ = true;
 };
+
+class KCPServerAdapter : public KCPServerInterface {
+public:
+    explicit KCPServerAdapter(std::shared_ptr<KCPServerInterface> impl)
+        : impl_(impl) {}
+
+    ~KCPServerAdapter() {
+        executor()->Invoke([this] {
+            impl_->Stop();
+            impl_.reset();
+        });
+    }
+
+    bool Start(KCPServerCallback *cb) override {
+        return executor()->Invoke(&KCPServerInterface::Start, impl_, cb);
+    }
+
+    void Stop() override {
+        executor()->Invoke(&KCPServerInterface::Stop, impl_);
+    }
+
+    const UDPAddress& local_address() const override {
+        return impl_->local_address();
+    }
+
+    ExecutorInterface *executor() override {
+        return impl_->executor();
+    }
+private:
+    std::shared_ptr<KCPServerInterface> impl_;
+};
 }
 
 #endif // !_KCP_SERVER_H_INCLUDED

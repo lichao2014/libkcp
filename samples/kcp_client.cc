@@ -27,9 +27,9 @@ public:
         return false;
     }
 
-    bool Init(kcp::KCPContextInterface *ctx, const kcp::UDPAddress& a, const kcp::UDPAddress& b) {
+    bool Init(kcp::KCPContextInterface *ctx, const kcp::UDPAddress& a, const kcp::UDPAddress& b, uint32_t conv) {
         client_ = ctx->CreateClient(a);
-        return client_->Connect(b, 0, {}, this);
+        return client_->Connect(b, conv, {}, this);
     }
 
     void Test() {
@@ -48,10 +48,13 @@ int main() {
     auto ctx = kcp::KCPContextInterface::Create();
     ctx->Start();
 
-    KCPClientCallback client;
-    client.Init(ctx.get(), { "127.0.0.1", 1235 }, { "127.0.0.1", 1234 });
+    KCPClientCallback client1;
+    client1.Init(ctx.get(), { "127.0.0.1", 1235 }, { "127.0.0.1", 1234 }, 0);
+    client1.Test();
 
-    client.Test();
+    KCPClientCallback client2;
+    client2.Init(ctx.get(), { "127.0.0.1", 1236 }, { "127.0.0.1", 1234 }, 1);
+    client2.Test();
 
     std::cin.get();
 }

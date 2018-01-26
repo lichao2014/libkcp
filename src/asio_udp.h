@@ -116,10 +116,12 @@ public:
     void Start() override;
     void Stop() override;
     std::shared_ptr<UDPInterface> CreateUDP(const UDPAddress& addr) override;
-    ExecutorInterface *executor() override { return nullptr; }
+    ExecutorInterface *executor() override;
 private:
     explicit AsioIOContext(size_t thread_num);
     ~AsioIOContext() { Stop(); }
+
+    const std::shared_ptr<IOContextThread>& SelectIOThread();
 
     std::vector<std::shared_ptr<IOContextThread>> threads_;
     std::atomic_size_t select_thread_index_ = 0;
