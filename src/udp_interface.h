@@ -29,12 +29,12 @@ class IOContextInterface {
 protected:
     virtual ~IOContextInterface() = default;
 public:
+    static std::shared_ptr<IOContextInterface> Create(size_t thread_num);
+
     virtual void Start() = 0;
     virtual void Stop() = 0;
     virtual std::shared_ptr<UDPInterface> CreateUDP(const UDPAddress& addr) = 0;
     virtual ExecutorInterface *executor() = 0;
-
-    static std::shared_ptr<IOContextInterface> Create(size_t thread_num);
 };
 }
 

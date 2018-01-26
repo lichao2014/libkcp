@@ -3,16 +3,6 @@
 
 using namespace kcp;
 
-//static 
-std::shared_ptr<KCPServer> 
-KCPServer::Create(std::shared_ptr<UDPInterface> udp) {
-    return { new KCPServer(udp), [](KCPServer *p) { delete p; } };
-}
-
-KCPServer::~KCPServer() {
-    Stop();
-}
-
 bool KCPServer::Start(KCPServerCallback *cb) {
     if (!udp_->Open(1024 * 64, this)) {
         return false;
@@ -46,7 +36,7 @@ void KCPServer::OnRecvUDP(const UDPAddress& from, const char *buf, size_t len) {
         return;
     }
 
-    assert(proxy_);
+    KCP_ASSERT(proxy_);
 
     uint32_t conv;
     switch (proxy_->RecvUDP(from, buf, len, &conv)) {
@@ -62,9 +52,9 @@ void KCPServer::OnRecvUDP(const UDPAddress& from, const char *buf, size_t len) {
     }
 }
 
-void KCPServer::OnNewClient(const UDPAddress& from, 
-                            uint32_t conv, 
-                            const char *buf, 
+void KCPServer::OnNewClient(const UDPAddress& from,
+                            uint32_t conv,
+                            const char *buf,
                             size_t len) {
     if (!cb_) {
         return;
@@ -76,7 +66,7 @@ void KCPServer::OnNewClient(const UDPAddress& from,
         return;
     }
 
-    auto client = std::make_shared<KCPClientAdapter>(KCPClient::Create(udp));
+    auto client = KCPClientAdapter::Create(udp);
     if (!cb_->OnAccept(client, from, conv)) {
         return;
     }
@@ -92,3 +82,11 @@ bool KCPServer::OnError(const std::error_code& ec) {
     return cb_->OnError(ec);
 }
 
+//static
+std::shared_ptr<KCPServerAdapter>
+KCPServerAdapter::Create(std::shared_ptr<UDPInterface> udp) {
+    return {
+        new KCPServerAdapter(std::make_unique<KCPServer>(udp)),
+        [] (KCPServerAdapter *p) { delete p; }
+    };
+}

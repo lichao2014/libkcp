@@ -10,7 +10,7 @@ using StreamKey = UDPAddress;
 
 class KCPProxy : public std::enable_shared_from_this<KCPProxy> {
 public:
-    enum Result  : uint8_t {
+    enum Result : uint8_t {
         kSuccess,
         kNotFound,
         kBadMsg

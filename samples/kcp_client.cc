@@ -34,7 +34,7 @@ public:
 
     void Test() {
         buf_.timestamp = kcp::Now32();
-        assert(client_->Write(buf_.data, sizeof buf_));
+        KCP_ASSERT(client_->Write(buf_.data, sizeof buf_));
     }
 
 private:
@@ -44,7 +44,6 @@ private:
 };
 
 int main() {
- 
     auto ctx = kcp::KCPContextInterface::Create();
     ctx->Start();
 

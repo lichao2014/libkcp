@@ -11,43 +11,6 @@
 #include "udp_interface.h"
 
 namespace kcp {
-struct WriteReq {
-public:
-    using Ptr = std::unique_ptr<WriteReq, void(*)(WriteReq *)>;
-
-    boost::asio::ip::udp::endpoint peer;
-    size_t offset;
-    size_t size;
-    char data[1];
-
-    char *buf() { return data + offset; }
-
-    const char *buf() const { return data + offset; }
-    size_t len() const { return size - offset; }
-
-    static Ptr New(const boost::asio::ip::udp::endpoint& peer, 
-                   const char *buf, std::size_t len) {
-        return { NewRaw(peer, buf, len), &WriteReq::FreeRaw };
-    }
-
-    static WriteReq *NewRaw(const boost::asio::ip::udp::endpoint& peer, 
-                            const char *buf, std::size_t len) {
-        WriteReq *req = reinterpret_cast<WriteReq *>(malloc(sizeof(WriteReq) + len));
-        if (req) {
-            req->peer = peer;
-            req->offset = 0;
-            req->size = len;
-            memcpy(req->data, buf, len);
-        }
-
-        return req;
-    }
-
-    static void FreeRaw(WriteReq *req) {
-        free(req);
-    }
-};
-
 class IOContextThread : public boost::asio::io_context
                       , public ExecutorInterface {
 public:
@@ -58,18 +21,17 @@ public:
     void Stop();
 
     // executor interface
-    bool IsCurrentThread() const override;
-    bool DispatchTask(void *key, std::shared_ptr<TaskInterface> task) override;
+    bool CanNowExecuted() const override;
+    bool DispatchTask(void *key, TaskInterface *task) override;
     void CancelTask(void *key) override;
 private:
     uint32_t RunTasks();
-    void ClearTasks();
+    void CancelAllTasks();
 
     std::thread thread_;
     boost::asio::io_context::work work_;
 
-    using TaskKeyPair = std::pair<void *, std::shared_ptr<TaskInterface>>;
-    std::multimap<uint32_t, TaskKeyPair> tasks_;
+    std::multimap<uint32_t, std::pair<void *, TaskInterface *>> tasks_;
 };
 
 class AsioUDP : public UDPInterface
@@ -87,26 +49,25 @@ private:
     explicit AsioUDP(std::shared_ptr<IOContextThread> io_ctx);
     ~AsioUDP() { Close(); }
 
-    bool Init(const UDPAddress& addr);
-    void Write(WriteReq::Ptr req);
-    void StartWrite();
+    class WriteReq;
+    using WriteReqPtr = std::unique_ptr<WriteReq, void(*)(WriteReq *)>;
+
+    bool Bind(const UDPAddress& addr);
+    void TryStartWrite();
     void StartRead();
-    void WriteCallback(WriteReq::Ptr req, std::size_t bytes_transferred);
+    void WriteCallback(WriteReqPtr req, std::size_t bytes_transferred);
     void ReadCallback(std::size_t bytes_transferred);
     bool ErrorCallback(const boost::system::error_code& ec);
 
-    std::queue<WriteReq::Ptr> write_req_queue_;
-    bool in_writing_ = false;
-    bool closed_ = true;
-
+    std::queue<WriteReqPtr> write_req_queue_;
     std::vector<char> recv_buf_;
-
     boost::asio::ip::udp::endpoint peer_;
     mutable boost::asio::ip::udp::socket socket_;
     UDPAddress address_;
-
     std::shared_ptr<IOContextThread> io_ctx_;
     UDPCallback *cb_ = nullptr;
+    bool in_writing_ = false;
+    bool closed_ = true;
 };
 
 class AsioIOContext : public IOContextInterface {

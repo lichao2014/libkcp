@@ -2,47 +2,26 @@
 
 using namespace kcp;
 
-//static 
-std::shared_ptr<KCPStream>
-KCPStream::Create(std::shared_ptr<UDPInterface> udp,
-                  const UDPAddress& peer,
-                  uint32_t conv,
-                  const KCPConfig& config) {
-    return { 
-        new KCPStream(udp, peer, conv, config), 
-        [](KCPStream *p) { delete p; }
-    };
-}
-
-KCPStream::~KCPStream() {
-    Close();
-}
-
-bool KCPStream::Open(KCPClientCallback *cb) {
-    if (!api_.Init(conv_, this)) {
+bool KCPStream::Open() {
+    if (!api_.Init(conv_, &KCPStream::KCPOutput, this)) {
         return false;
     }
 
-    api_->output = &KCPStream::KCPOutput;
     api_.set_mtu(config_.mtu);
     api_.set_wndsize(config_.sndwnd, config_.rcvwnd);
     api_.set_nodelay(config_.nodelay ? 1 : 0,
                     config_.interval,
                     config_.resend,
                     config_.nocwnd ? 1 : 0);
-    cb_ = cb;
+
     closed_ = false;
 
-    assert(udp_);
-    if (!udp_->executor()->DispatchTask(this, shared_from_this())) {
+    KCP_ASSERT(udp_);
+    if (!udp_->executor()->DispatchTask(this, this)) {
         return false;
     }
 
     return udp_->Open(config_.mtu, this);
-}
-
-bool KCPStream::Write(const char *buf, std::size_t len) {
-    return api_.Send(buf, len);
 }
 
 void KCPStream::Close() {
@@ -56,6 +35,10 @@ void KCPStream::Close() {
         udp_->executor()->CancelTask(this);
         udp_->Close();
     }
+}
+
+bool KCPStream::Write(const char *buf, std::size_t len) {
+    return api_.Send(buf, len);
 }
 
 void KCPStream::WriteUDP(const char *buf, std::size_t len) {
@@ -102,8 +85,8 @@ bool KCPStream::OnError(const std::error_code& ec) {
     return cb_->OnError(ec);
 }
 
-uint32_t KCPStream::OnRun(uint32_t now, bool cancel) {
-    if (cancel || closed_) {
+uint32_t KCPStream::OnRun(uint32_t now) {
+    if (closed_) {
         return kNotContinue;
     }
 
@@ -119,7 +102,9 @@ uint32_t KCPStream::OnRun(uint32_t now, bool cancel) {
     return delay;
 }
 
-// static 
+void KCPStream::OnCancel() {}
+
+// static
 int KCPStream::KCPOutput(const char *buf, int len, struct IKCPCB *kcp, void *user) {
     KCPStream *stream = reinterpret_cast<KCPStream *>(user);
     stream->WriteUDP(buf, len);

@@ -32,9 +32,17 @@ public:
     }
 
     bool OnAccept(std::shared_ptr<kcp::KCPClientInterface> client, const kcp::UDPAddress& from, uint32_t conv) override {
-        clients_.emplace_back(client);
         std::clog << "incoming a client from=" << from.ip4_string() << ',' << from.port << ",conv=" << conv << std::endl;
-        return client->Connect(from, conv, {}, &clients_.back());
+
+        auto c = std::make_unique<KCPClientCallback>(client);
+        if (!client->Connect(from, conv, {}, c.get())) {
+            std::cerr << "connect failed" << std::endl;
+            return false;
+        }
+
+        clients_.emplace_back(std::move(c));
+
+        return true;
     }
 
     bool OnError(const std::error_code& ec) override {
@@ -43,7 +51,7 @@ public:
     }
 private:
     std::shared_ptr<kcp::KCPServerInterface> server_;
-    std::vector<KCPClientCallback> clients_;
+    std::vector<std::unique_ptr<KCPClientCallback>> clients_;
 };
 
 int main() {

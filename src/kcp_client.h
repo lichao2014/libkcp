@@ -9,56 +9,48 @@
 #include "kcp_error.h"
 
 namespace kcp {
-class KCPClient : public KCPClientInterface {
+class KCPClient   {
 public:
-    static std::shared_ptr<KCPClient> Create(std::shared_ptr<UDPInterface> udp);
+    explicit KCPClient(std::shared_ptr<UDPInterface> udp): udp_(udp) {}
+    ~KCPClient() = default;
 
     bool Connect(const UDPAddress& to,
                  uint32_t conv,
                  const KCPConfig& config,
-                 KCPClientCallback *cb) override;
-    bool Write(const char *buf, std::size_t len) override;
-    void Close() override;
-    const UDPAddress& local_address() const override;
-    const UDPAddress& remote_address() const override;
-    uint32_t conv() const override;
-    ExecutorInterface *executor() override;
+                 KCPClientCallback *cb);
+    bool Write(const char *buf, std::size_t len);
+    void Close();
+    const UDPAddress& local_address() const;
+    const UDPAddress& remote_address() const;
+    uint32_t conv() const;
+    ExecutorInterface *executor();
 private:
-    explicit KCPClient(std::shared_ptr<UDPInterface> udp)
-        : udp_(udp) {}
-
-    ~KCPClient() = default;
-
-    std::shared_ptr<KCPStream> stream_;
+    std::unique_ptr<KCPStream> stream_;
     std::shared_ptr<UDPInterface> udp_;
 };
 
 class KCPClientAdapter : public KCPClientInterface {
 public:
-    explicit KCPClientAdapter(std::shared_ptr<KCPClientInterface> impl) 
-        : impl_(impl) {}
-
-    ~KCPClientAdapter() {
-        executor()->Invoke([&] {
-            impl_->Close();
-            impl_.reset();
-        });
-    }
+    static std::shared_ptr<KCPClientAdapter> Create(std::shared_ptr<UDPInterface> udp);
 
     bool Connect(const UDPAddress& to,
                 uint32_t conv,
                 const KCPConfig& config,
                 KCPClientCallback *cb) override {
-        return executor()->Invoke(
-            &KCPClientInterface::Connect,impl_, to, conv, config, cb);
+        return executor()->Invoke(&KCPClient::Connect,
+                                   impl_.get(),
+                                   to,
+                                   conv,
+                                   config,
+                                   cb);
     }
 
     bool Write(const char *buf, std::size_t len) {
-        return executor()->Invoke(&KCPClientInterface::Write, impl_, buf, len);
+        return executor()->Invoke(&KCPClient::Write, impl_.get(), buf, len);
     }
 
     void Close() override {
-        executor()->Invoke(&KCPClientInterface::Close, impl_);
+        executor()->Invoke(&KCPClient::Close, impl_.get());
     }
 
     const UDPAddress& local_address() const override {
@@ -77,7 +69,17 @@ public:
         return impl_->executor();
     }
 private:
-    std::shared_ptr<KCPClientInterface> impl_;
+    explicit KCPClientAdapter(std::unique_ptr<KCPClient> impl)
+        : impl_(std::move(impl)) {}
+
+    ~KCPClientAdapter() {
+        executor()->Invoke([this] {
+            impl_->Close();
+            impl_.reset();
+        });
+    }
+
+    std::unique_ptr<KCPClient> impl_;
 };
 }
 

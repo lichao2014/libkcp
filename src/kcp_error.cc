@@ -19,7 +19,7 @@ std::string ErrorCategory::message(int err) const {
         break;
     }
 
-    return "";
+    return "unknown error";
 }
 
 const ErrorCategory& GetErrorCategory() {

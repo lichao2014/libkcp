@@ -2,22 +2,16 @@
 
 using namespace kcp;
 
-//static 
-std::shared_ptr<KCPClient> 
-KCPClient::Create(std::shared_ptr<UDPInterface> udp) {
-    return { new KCPClient(udp), [](KCPClient *p) { delete p; } };
-}
-
 bool KCPClient::Connect(const UDPAddress& to,
                         uint32_t conv,
                         const KCPConfig& config,
                         KCPClientCallback *cb) {
-    stream_ = KCPStream::Create(udp_, to, conv, config);
+    stream_ = std::make_unique<KCPStream>(udp_, to, conv, config, cb);
     if (!stream_) {
         return false;
     }
 
-    return stream_->Open(cb);
+    return stream_->Open();
 }
 
 bool KCPClient::Write(const char *buf, std::size_t len) {
@@ -42,4 +36,13 @@ uint32_t KCPClient::conv() const {
 
 ExecutorInterface *KCPClient::executor() {
     return udp_->executor();
+}
+
+//static
+std::shared_ptr<KCPClientAdapter>
+KCPClientAdapter::Create(std::shared_ptr<UDPInterface> udp) {
+    return {
+        new KCPClientAdapter(std::make_unique<KCPClient>(udp)),
+        [] (KCPClientAdapter *p) { delete p; }
+    };
 }

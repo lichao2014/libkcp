@@ -13,6 +13,8 @@
 namespace kcp {
 class KCPAPI : public std::shared_ptr<ikcpcb> {
 public:
+    using OutputFunc = decltype(std::declval<ikcpcb>().output);
+
     using std::shared_ptr<ikcpcb>::shared_ptr;
 
     // return recv size
@@ -62,42 +64,38 @@ public:
         return ikcp_check(get(), current);
     }
 
-    bool Init(uint32_t conv, void *user) {
+    bool Init(uint32_t conv, OutputFunc output, void *user) noexcept {
         auto kcp = ikcp_create(conv, user);
         if (kcp) {
             reset(kcp, &ikcp_release);
+            kcp->output = output;
         }
 
         return kcp;
     }
 };
 
-class KCPStream : public UDPCallback
-                , public TaskInterface
-                , public std::enable_shared_from_this<KCPStream> {
+class KCPStream : public UDPCallback, public TaskInterface {
 public:
-    static std::shared_ptr<KCPStream> Create(std::shared_ptr<UDPInterface> udp,
-                                             const UDPAddress& peer,
-                                             uint32_t conv,
-                                             const KCPConfig& config);
-
-    bool Open(KCPClientCallback *cb) ;
-    bool Write(const char *buf, std::size_t len);
-    void Close();
-    const UDPAddress& peer() const { return peer_; }
-    uint32_t conv() const { return conv_; }
-private:
-    explicit KCPStream(std::shared_ptr<UDPInterface> udp,
-                       const UDPAddress& peer,
-                       uint32_t conv,
-                       const KCPConfig& config)
+    KCPStream(std::shared_ptr<UDPInterface> udp,
+              const UDPAddress& peer,
+              uint32_t conv,
+              const KCPConfig& config,
+              KCPClientCallback *cb)
         : udp_(udp)
         , peer_(peer)
         , conv_(conv)
-        , config_(config) {}
+        , config_(config)
+        , cb_(cb) {}
 
-    ~KCPStream();
+    ~KCPStream() { Close(); }
 
+    bool Open();
+    void Close();
+    bool Write(const char *buf, std::size_t len);
+    const UDPAddress& peer() const { return peer_; }
+    uint32_t conv() const { return conv_; }
+private:
     void WriteUDP(const char *buf, std::size_t len);
     void TryRecvKCP();
     bool OnKCPError(ErrNum err);
@@ -107,7 +105,8 @@ private:
     bool OnError(const std::error_code& ec) override;
 
     // task callback
-    uint32_t OnRun(uint32_t now, bool cancel) override;
+    uint32_t OnRun(uint32_t now) override;
+    void OnCancel() override;
 
     // kcp output
     static int KCPOutput(const char *buf, int len, struct IKCPCB *kcp, void *user);
