@@ -7,7 +7,7 @@ namespace kcp {
 enum class ErrNum : uint8_t {
     kInvalidArgment = 1,
     kUDPSendFailed,
-    kBadUDPAddress,
+    kBadIP4Address,
     kKCPInputFailed,
     kBadUDPMsg,
     kBadKCPConv

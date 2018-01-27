@@ -1,35 +1,50 @@
 #ifndef _KCP_PROXY_H_INCLUDED
 #define _KCP_PROXY_H_INCLUDED
 
-#include <map>
+#include <unordered_map>
 
 #include "udp_interface.h"
 
 namespace kcp {
-using StreamKey = UDPAddress;
+using StreamKey = IP4Address;
 
-class KCPProxy : public std::enable_shared_from_this<KCPProxy> {
+struct StreamKeyHasher {
+    constexpr size_t operator() (const StreamKey& key) const noexcept {
+        return key.u64;
+    }
+};
+
+class KCPMux : public UDPCallback
+             , public std::enable_shared_from_this<KCPMux> {
 public:
-    enum Result : uint8_t {
-        kSuccess,
-        kNotFound,
-        kBadMsg
-    };
+    static std::shared_ptr<KCPMux> Create(std::shared_ptr<UDPInterface> udp);
 
-    static std::shared_ptr<KCPProxy> Create(std::shared_ptr<UDPInterface> udp);
+    std::shared_ptr<UDPInterface> AddUDPFilter(const StreamKey& key);
 
-    std::shared_ptr<UDPInterface> AddFilter(const StreamKey& key);
-    Result RecvUDP(const UDPAddress& from, const char *buf, size_t len, uint32_t *conv);
+    // udp callback
+    bool OnRecvUDP(const IP4Address& from, const char *buf, size_t len) override;
+    bool OnError(const std::error_code& ec) override;
 private:
-    explicit KCPProxy(std::shared_ptr<UDPInterface> udp) : udp_(udp) {}
-    ~KCPProxy() = default;
-
-    static bool ParseConv(const char *buf, size_t len, uint32_t *conv);
+    explicit KCPMux(std::shared_ptr<UDPInterface> udp) : udp_(udp) {}
+    ~KCPMux() = default;
 
     std::shared_ptr<UDPInterface> udp_;
 
     class UDPAdapter;
-    std::map<StreamKey, UDPAdapter *> by_key_streams_;
+    std::unordered_map<StreamKey, UDPAdapter *, StreamKeyHasher> by_key_streams_;
+};
+
+using IP4AddressHasher = StreamKeyHasher;
+
+class KCPProxy {
+public:
+    std::shared_ptr<KCPMux> AddMux(IOContextInterface *io_ctx, const IP4Address& addr);
+    std::shared_ptr<UDPInterface> AddUDPFilter(IOContextInterface *io_ctx,
+                                               const IP4Address& addr,
+                                               uint32_t conv);
+    bool IsMuxAddress(const IP4Address& addr) const;
+private:
+    std::unordered_map<IP4Address, std::weak_ptr<KCPMux>, IP4AddressHasher> by_address_muxes_;
 };
 }
 

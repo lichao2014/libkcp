@@ -11,11 +11,12 @@
 #include "kcp_error.h"
 
 namespace kcp {
-class KCPAPI : public std::shared_ptr<ikcpcb> {
+class KCPAPI : public std::unique_ptr<ikcpcb, void (*)(ikcpcb *)> {
 public:
     using OutputFunc = decltype(std::declval<ikcpcb>().output);
 
-    using std::shared_ptr<ikcpcb>::shared_ptr;
+    KCPAPI()
+        : std::unique_ptr<ikcpcb, void(*)(ikcpcb *)>(nullptr, &ikcp_release) {}
 
     // return recv size
     int Recv(char *buffer, int len) noexcept {
@@ -67,41 +68,43 @@ public:
     bool Init(uint32_t conv, OutputFunc output, void *user) noexcept {
         auto kcp = ikcp_create(conv, user);
         if (kcp) {
-            reset(kcp, &ikcp_release);
             kcp->output = output;
+            reset(kcp);
         }
 
         return kcp;
     }
+
+    static bool ParseConv(const char *buf, size_t len, uint32_t *conv);
 };
 
-class KCPStream : public UDPCallback, public TaskInterface {
+class KCPStream : public UDPCallback
+                , public TaskInterface
+                , public KCPStreamInterface {
 public:
     KCPStream(std::shared_ptr<UDPInterface> udp,
-              const UDPAddress& peer,
-              uint32_t conv,
-              const KCPConfig& config,
-              KCPClientCallback *cb)
+              const IP4Address& peer,
+              uint32_t conv)
         : udp_(udp)
         , peer_(peer)
-        , conv_(conv)
-        , config_(config)
-        , cb_(cb) {}
+        , conv_(conv) {}
 
     ~KCPStream() { Close(); }
 
-    bool Open();
-    void Close();
-    bool Write(const char *buf, std::size_t len);
-    const UDPAddress& peer() const { return peer_; }
-    uint32_t conv() const { return conv_; }
+    bool Open(const KCPConfig& config, KCPStreamCallback *cb) override;
+    void Close() override;
+    bool Write(const char *buf, size_t len) override;
+    const IP4Address& local_address() const override;
+    const IP4Address& remote_address() const override;
+    uint32_t conv() const override;
+    ExecutorInterface *executor() override;
 private:
     void WriteUDP(const char *buf, std::size_t len);
     void TryRecvKCP();
     bool OnKCPError(ErrNum err);
 
     // udp callback
-    void OnRecvUDP(const UDPAddress& from, const char *buf, size_t len) override;
+    bool OnRecvUDP(const IP4Address& from, const char *buf, size_t len) override;
     bool OnError(const std::error_code& ec) override;
 
     // task callback
@@ -113,12 +116,57 @@ private:
 
     KCPAPI api_;
     std::shared_ptr<UDPInterface> udp_;
-    UDPAddress peer_;
-    uint32_t conv_;
-    KCPConfig config_;
+    IP4Address peer_;
     std::vector<char> recv_buf_;
-    KCPClientCallback *cb_ = nullptr;
+    KCPStreamCallback *cb_ = nullptr;
+    uint32_t conv_ = 0;
     bool closed_ = true;
+};
+
+class KCPStreamAdapter : public KCPStreamInterface {
+public:
+    static std::unique_ptr<KCPStreamAdapter> Create(
+        std::shared_ptr<UDPInterface> udp, const IP4Address& peer, uint32_t conv);
+
+    explicit KCPStreamAdapter(std::unique_ptr<KCPStreamInterface> impl)
+        : impl_(std::move(impl)) {}
+
+    ~KCPStreamAdapter() {
+        executor()->Invoke([this] {
+            impl_->Close();
+            impl_.reset();
+        });
+    }
+
+    bool Open(const KCPConfig& config, KCPStreamCallback *cb) override {
+        return executor()->Invoke(&KCPStreamInterface::Open, impl_.get(), config, cb);
+    }
+
+    void Close() override {
+        return executor()->Invoke(&KCPStreamInterface::Close, impl_.get());
+    }
+
+    bool Write(const char *buf, size_t len) override {
+        return executor()->Invoke(&KCPStreamInterface::Write, impl_.get(), buf, len);
+    }
+
+    const IP4Address& local_address() const override {
+        return impl_->local_address();
+    }
+
+    const IP4Address& remote_address() const override {
+        return impl_->remote_address();
+    }
+
+    uint32_t conv() const override {
+        return impl_->conv();
+    }
+
+    ExecutorInterface *executor() override {
+        return impl_->executor();
+    }
+private:
+    std::unique_ptr<KCPStreamInterface> impl_;
 };
 }
 

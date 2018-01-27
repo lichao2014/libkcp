@@ -1,16 +1,17 @@
 #include "kcp_server.h"
 #include "kcp_client.h"
 
+
 using namespace kcp;
 
 bool KCPServer::Start(KCPServerCallback *cb) {
-    if (!udp_->Open(1024 * 64, this)) {
+    if (!udp_->Open(config_.recv_size, this)) {
         return false;
     }
 
     cb_ = cb;
     stopped_ = false;
-    proxy_ = KCPProxy::Create(udp_);
+    proxy_ = KCPMux::Create(udp_);
 
     return true;
 }
@@ -27,51 +28,47 @@ void KCPServer::Stop() {
     }
 }
 
-const UDPAddress& KCPServer::local_address() const {
+const IP4Address& KCPServer::local_address() const {
     return udp_->local_address();
 }
 
-void KCPServer::OnRecvUDP(const UDPAddress& from, const char *buf, size_t len) {
+ExecutorInterface *KCPServer::executor() {
+    return udp_->executor();
+}
+
+bool KCPServer::OnRecvUDP(const IP4Address& from, const char *buf, size_t len) {
     if (stopped_) {
-        return;
+        return false;
     }
 
     KCP_ASSERT(proxy_);
-
-    uint32_t conv;
-    switch (proxy_->RecvUDP(from, buf, len, &conv)) {
-    case KCPProxy::kNotFound:
-        OnNewClient(from, conv, buf, len);
-        break;
-    case KCPProxy::kSuccess:
-        break;
-    case KCPProxy::kBadMsg:
-    default:
-        OnError(MakeErrorCode(ErrNum::kBadUDPMsg));
-        break;
-    }
+    return proxy_->OnRecvUDP(from, buf, len);
 }
 
-void KCPServer::OnNewClient(const UDPAddress& from,
+bool KCPServer::OnNewClient(const IP4Address& from,
                             uint32_t conv,
                             const char *buf,
                             size_t len) {
     if (!cb_) {
-        return;
+        return false;
     }
 
-    UDPAddress key(from, conv);
-    auto udp = proxy_->AddFilter(key);
+    IP4Address key(from, conv);
+    auto udp = proxy_->AddUDPFilter(key);
     if (!udp) {
-        return;
+        return false;
     }
 
-    auto client = KCPClientAdapter::Create(udp);
-    if (!cb_->OnAccept(client, from, conv)) {
-        return;
+    auto client = KCPClientAdapter::Create(udp, from, config_);
+    if (!client) {
+        return false;
     }
 
-    proxy_->RecvUDP(from, buf, len, &conv);
+    if (!cb_->OnAccept(std::move(client))) {
+        return false;
+    }
+
+    return proxy_->OnRecvUDP(from, buf, len);
 }
 
 bool KCPServer::OnError(const std::error_code& ec) {
@@ -83,10 +80,13 @@ bool KCPServer::OnError(const std::error_code& ec) {
 }
 
 //static
-std::shared_ptr<KCPServerAdapter>
-KCPServerAdapter::Create(std::shared_ptr<UDPInterface> udp) {
-    return {
-        new KCPServerAdapter(std::make_unique<KCPServer>(udp)),
-        [] (KCPServerAdapter *p) { delete p; }
-    };
+std::unique_ptr<KCPServerAdapter>
+KCPServerAdapter::Create(std::shared_ptr<UDPInterface> udp,
+                         const KCPServerConfig& config) {
+    auto server = std::make_unique<KCPServer>(udp, config);
+    if (!server) {
+        return nullptr;
+    }
+
+    return std::make_unique<KCPServerAdapter>(std::move(server));
 }

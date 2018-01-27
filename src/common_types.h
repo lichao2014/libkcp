@@ -34,7 +34,7 @@ struct KCPConfig {
     bool nocwnd = false;
 };
 
-union UDPAddress {
+union IP4Address {
     uint64_t u64;
 
     struct {
@@ -43,21 +43,21 @@ union UDPAddress {
         uint16_t conv;
     };
 
-    constexpr UDPAddress() : u64(0) {}
+    constexpr IP4Address() : u64(0) {}
 
-    constexpr UDPAddress(const UDPAddress& addr, uint16_t conv)
+    constexpr IP4Address(const IP4Address& addr, uint16_t conv)
         : u64(addr.u64)
         , conv(conv) {}
 
-    constexpr bool operator <(const UDPAddress& rhs) const {
+    constexpr bool operator <(const IP4Address& rhs) const {
         return u64 < rhs.u64;
     }
 
-    constexpr bool operator ==(const UDPAddress& rhs) const {
+    constexpr bool operator ==(const IP4Address& rhs) const {
         return u64 == rhs.u64;
     }
 
-    UDPAddress(const char *str, uint16_t port, uint16_t conv = 0);
+    IP4Address(const char *str, uint16_t port, uint16_t conv = 0);
     std::string ip4_string() const noexcept;
 };
 

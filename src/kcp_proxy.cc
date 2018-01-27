@@ -1,11 +1,11 @@
 #include "kcp_proxy.h"
+#include "kcp_stream.h"
 
 using namespace kcp;
 
-class KCPProxy::UDPAdapter : public UDPInterface {
+class KCPMux::UDPAdapter : public UDPInterface {
 public:
-    UDPAdapter(std::shared_ptr<KCPProxy> proxy,
-               const UDPAddress& key)
+    UDPAdapter(std::shared_ptr<KCPMux> proxy, const StreamKey& key)
         : proxy_(proxy)
         , key_(key) {}
 
@@ -23,38 +23,33 @@ public:
         cb_ = nullptr;
     }
 
-    bool Send(const UDPAddress& to, const char *buf, size_t len) override {
+    bool Send(const IP4Address& to, const char *buf, size_t len) override {
         return proxy_->udp_->Send(to, buf, len);
     }
 
-    const UDPAddress& local_address() const override {
+    const IP4Address& local_address() const override {
         return  proxy_->udp_->local_address();
     }
 
     ExecutorInterface *executor() override {
-        if (executor_) {
-            return executor_;
-        }
-
         return  proxy_->udp_->executor();
     }
 private:
-    friend class KCPProxy;
+    friend class KCPMux;
 
-    std::shared_ptr<KCPProxy> proxy_;
-    UDPAddress key_;
+    std::shared_ptr<KCPMux> proxy_;
+    StreamKey key_;
     UDPCallback *cb_ = nullptr;
-    ExecutorInterface *executor_ = nullptr;
 };
 
-//static 
-std::shared_ptr<KCPProxy> 
-KCPProxy::Create(std::shared_ptr<UDPInterface> udp) {
-    return { new KCPProxy(udp), [](KCPProxy *p) { delete p; } };
+//static
+std::shared_ptr<KCPMux>
+KCPMux::Create(std::shared_ptr<UDPInterface> udp) {
+    return { new KCPMux(udp), [](KCPMux *p) { delete p; } };
 }
 
 std::shared_ptr<UDPInterface>
-KCPProxy::AddFilter(const StreamKey& key) {
+KCPMux::AddUDPFilter(const StreamKey& key) {
     if (by_key_streams_.find(key) != by_key_streams_.end()) {
         return nullptr;
     }
@@ -67,32 +62,67 @@ KCPProxy::AddFilter(const StreamKey& key) {
     return udp;
 }
 
-KCPProxy::Result
-KCPProxy::RecvUDP(const UDPAddress& from, const char *buf, size_t len, uint32_t *conv) {
-    if (!ParseConv(buf, len, conv)) {
-        return kBadMsg;
-    }
-
-    UDPAddress key(from, *conv);
-    auto by_key = by_key_streams_.find(key);
-    if (by_key_streams_.end() != by_key) {
-        by_key->second->cb_->OnRecvUDP(from, buf, len);
-        return kSuccess;
-    }
-
-    return kNotFound;
-}
-
-//static 
-bool KCPProxy::ParseConv(const char *buf, size_t len, uint32_t *conv) {
-    // conv is le32
-    if (len < 4) {
+bool KCPMux::OnRecvUDP(const IP4Address& from, const char *buf, size_t len) {
+    uint32_t conv = 0;
+    if (!KCPAPI::ParseConv(buf, len, &conv)) {
         return false;
     }
 
-    if (conv) {
-        *conv = buf[0] | (buf[1] << 8) | (buf[2] << 16) | (buf[3] << 24);
+    StreamKey key(from, conv);
+    auto by_key = by_key_streams_.find(key);
+    if (by_key_streams_.end() != by_key) {
+        return by_key->second->cb_->OnRecvUDP(from, buf, len);
+    }
+
+    return false;
+}
+
+bool KCPMux::OnError(const std::error_code& ec) {
+    for (auto&& stream : by_key_streams_) {
+        if (!stream.second->cb_->OnError(ec)) {
+            return false;
+        }
     }
 
     return true;
+}
+
+std::shared_ptr<KCPMux>
+KCPProxy::AddMux(IOContextInterface *io_ctx, const IP4Address& addr) {
+    auto by_address = by_address_muxes_.find(addr);
+    if (by_address_muxes_.end() != by_address) {
+        auto mux = by_address->second.lock();
+        if (mux) {
+            return mux;
+        }
+    }
+
+    auto udp = io_ctx->CreateUDP(addr);
+    if (!udp) {
+        return nullptr;
+    }
+
+    auto new_mux = KCPMux::Create(udp);
+    if (new_mux) {
+        udp->Open(1024 * 64, new_mux.get());
+        by_address_muxes_.insert_or_assign(addr, new_mux);
+    }
+
+    return new_mux;
+}
+
+std::shared_ptr<UDPInterface>
+KCPProxy::AddUDPFilter(IOContextInterface *io_ctx,const IP4Address& addr, uint32_t conv) {
+    auto mux = AddMux(io_ctx, addr);
+    if (!mux) {
+
+        return nullptr;
+    }
+
+    StreamKey key(addr, conv);
+    return mux->AddUDPFilter(key);
+}
+
+bool KCPProxy::IsMuxAddress(const IP4Address& addr) const {
+    return by_address_muxes_.end() != by_address_muxes_.find(addr);
 }

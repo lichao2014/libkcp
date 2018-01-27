@@ -40,8 +40,8 @@ public:
     // udp interface
     bool Open(size_t recv_size, UDPCallback *cb) override;
     void Close() override;
-    bool Send(const UDPAddress& to, const char *buf, size_t len) override;
-    const UDPAddress& local_address() const override;
+    bool Send(const IP4Address& to, const char *buf, size_t len) override;
+    const IP4Address& local_address() const override;
     ExecutorInterface *executor() override;
 private:
     friend class AsioIOContext;
@@ -52,7 +52,7 @@ private:
     class WriteReq;
     using WriteReqPtr = std::unique_ptr<WriteReq, void(*)(WriteReq *)>;
 
-    bool Bind(const UDPAddress& addr);
+    bool Bind(const IP4Address& addr);
     void TryStartWrite();
     void StartRead();
     void WriteCallback(WriteReqPtr req, std::size_t bytes_transferred);
@@ -63,7 +63,7 @@ private:
     std::vector<char> recv_buf_;
     boost::asio::ip::udp::endpoint peer_;
     mutable boost::asio::ip::udp::socket socket_;
-    UDPAddress address_;
+    IP4Address address_;
     std::shared_ptr<IOContextThread> io_ctx_;
     UDPCallback *cb_ = nullptr;
     bool in_writing_ = false;
@@ -76,7 +76,7 @@ public:
 
     void Start() override;
     void Stop() override;
-    std::shared_ptr<UDPInterface> CreateUDP(const UDPAddress& addr) override;
+    std::shared_ptr<UDPInterface> CreateUDP(const IP4Address& addr) override;
     ExecutorInterface *executor() override;
 private:
     explicit AsioIOContext(size_t thread_num);

@@ -22,22 +22,37 @@ ExecutorInterface *KCPContext::executor() {
     return io_ctx_->executor();
 }
 
-std::shared_ptr<KCPClientInterface>
-KCPContext::CreateClient(const UDPAddress& addr) {
-    auto udp = io_ctx_->CreateUDP(addr);
+std::unique_ptr<KCPStreamInterface>
+KCPContext::CreateStream(const IP4Address& addr,
+                         const IP4Address& peer,
+                         uint32_t conv) {
+    auto udp = proxy_.AddUDPFilter(io_ctx_.get(), peer, conv);
     if (!udp) {
         return nullptr;
     }
 
-    return udp->executor()->Invoke(KCPClientAdapter::Create, udp);
+    return udp->executor()->Invoke(&KCPStreamAdapter::Create, udp, peer, conv);
 }
 
-std::shared_ptr<KCPServerInterface>
-KCPContext::CreateServer(const UDPAddress& addr) {
+std::unique_ptr<KCPClientInterface>
+KCPContext::CreateClient(const IP4Address& addr,
+                        const IP4Address& peer,
+                        const KCPConfig& config) {
     auto udp = io_ctx_->CreateUDP(addr);
     if (!udp) {
         return nullptr;
     }
 
-    return udp->executor()->Invoke(KCPServerAdapter::Create, udp);
+    return udp->executor()->Invoke(&KCPClientAdapter::Create, udp, peer, config);
+}
+
+std::unique_ptr<KCPServerInterface>
+KCPContext::CreateServer(const IP4Address& addr,
+                         const KCPServerConfig& config) {
+    auto udp = io_ctx_->CreateUDP(addr);
+    if (!udp) {
+        return nullptr;
+    }
+
+    return udp->executor()->Invoke(&KCPServerAdapter::Create, udp, config);
 }

@@ -7,7 +7,7 @@ std::string ErrorCategory::message(int err) const {
         return "invalid argment";
     case ErrNum::kUDPSendFailed:
         return "udp send failed";
-    case ErrNum::kBadUDPAddress:
+    case ErrNum::kBadIP4Address:
         return "bad udp address";
     case ErrNum::kKCPInputFailed:
         return "kcp input failed";

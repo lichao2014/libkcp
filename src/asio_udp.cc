@@ -3,7 +3,9 @@
 using namespace kcp;
 
 namespace {
-bool Address2Endpoint(const UDPAddress& from,
+constexpr uint32_t kWaitForPrecision = 10;
+
+bool Address2Endpoint(const IP4Address& from,
                       boost::asio::ip::udp::endpoint *to) {
     KCP_ASSERT(to);
 
@@ -18,7 +20,7 @@ bool Address2Endpoint(const UDPAddress& from,
 }
 
 void Endpoint2Address(const boost::asio::ip::udp::endpoint& from,
-                      UDPAddress *to) noexcept {
+                      IP4Address *to) noexcept {
     KCP_ASSERT(to);
 
     to->ip4 = ntohl(from.address().to_v4().to_uint());
@@ -56,7 +58,7 @@ void IOContextThread::Start() {
             uint32_t delay = RunTasks();
             if (0 == delay) {
                 run_one();
-            } else if (delay < 8) {
+            } else if (delay < kWaitForPrecision) {
                 poll();
             } else {
                 run_for(std::chrono::milliseconds(delay));
@@ -186,7 +188,7 @@ AsioUDP::AsioUDP(std::shared_ptr<IOContextThread> io_ctx)
     , io_ctx_(io_ctx) {
 }
 
-bool AsioUDP::Bind(const UDPAddress& addr) {
+bool AsioUDP::Bind(const IP4Address& addr) {
     boost::asio::ip::udp::endpoint endpoint;
     if (!Address2Endpoint(addr, &endpoint)) {
         return false;
@@ -227,7 +229,11 @@ void AsioUDP::Close() {
     io_ctx_->CancelTask(this);
 }
 
-bool AsioUDP::Send(const UDPAddress& to, const char *buf, size_t len) {
+bool AsioUDP::Send(const IP4Address& to, const char *buf, size_t len) {
+    if (closed_) {
+        return false;
+    }
+
     boost::asio::ip::udp::endpoint peer;
     if (!Address2Endpoint(to, &peer)) {
         return false;
@@ -239,7 +245,7 @@ bool AsioUDP::Send(const UDPAddress& to, const char *buf, size_t len) {
     return true;
 }
 
-const UDPAddress& AsioUDP::local_address() const {
+const IP4Address& AsioUDP::local_address() const {
     return address_;
 }
 
@@ -301,7 +307,7 @@ void AsioUDP::WriteCallback(WriteReqPtr req, std::size_t bytes_transferred) {
 
 void AsioUDP::ReadCallback(std::size_t bytes_transferred) {
     if (cb_) {
-        UDPAddress from;
+        IP4Address from;
         Endpoint2Address(peer_, &from);
 
         cb_->OnRecvUDP(from, recv_buf_.data(), bytes_transferred);
@@ -347,7 +353,7 @@ void AsioIOContext::Stop() {
 }
 
 std::shared_ptr<UDPInterface>
-AsioIOContext::CreateUDP(const UDPAddress& addr) {
+AsioIOContext::CreateUDP(const IP4Address& addr) {
     std::shared_ptr<AsioUDP> udp{
         new AsioUDP(SelectIOThread()),
         [](AsioUDP *p) { delete p; }

@@ -1,9 +1,11 @@
 #include <iostream>
-#include <cassert>
+#include <thread>
+#include "boost/thread/future.hpp"
 
 #include "kcp_interface.h"
+#include "kcp_log.h"
 
-class KCPClientCallback : public kcp::KCPClientCallback {
+class KCPClient : public kcp::KCPClientCallback {
 public:
     template<size_t N>
     union TimestampBuf {
@@ -11,12 +13,14 @@ public:
         char data[N];
     };
 
+    explicit KCPClient(int id) : id_(id) {}
+
     void OnRecvKCP(const char *buf, size_t size) override {
         //std::clog << "kcp recv:len=" << size << std::endl;
 
         uint32_t now = kcp::Now32();
         auto p = reinterpret_cast<const TimestampBuf<1024 * 8> *>(buf);
-        std::clog << now - p->timestamp << std::endl;
+        std::clog << "id=" << id_ << ",ttl=" << now - p->timestamp << std::endl;
 
         Test();
     }
@@ -27,7 +31,7 @@ public:
         return false;
     }
 
-    bool Init(kcp::KCPContextInterface *ctx, const kcp::UDPAddress& a, const kcp::UDPAddress& b, uint32_t conv) {
+    bool Init(kcp::KCPContextInterface *ctx, const kcp::IP4Address& a, const kcp::IP4Address& b, uint32_t conv) {
         client_ = ctx->CreateClient(a);
         return client_->Connect(b, conv, {}, this);
     }
@@ -38,22 +42,28 @@ public:
     }
 
 private:
-    std::shared_ptr<kcp::KCPClientInterface> client_;
-
+    int id_;
+    std::unique_ptr<kcp::KCPClientInterface> client_;
     TimestampBuf<1024 * 8> buf_;
 };
 
 int main() {
+    kcp::LogMessage::SetEnabled(false);
+
     auto ctx = kcp::KCPContextInterface::Create();
     ctx->Start();
 
-    KCPClientCallback client1;
-    client1.Init(ctx.get(), { "127.0.0.1", 1235 }, { "127.0.0.1", 1234 }, 0);
-    client1.Test();
+    std::vector<std::unique_ptr<KCPClient>> clients;
 
-    KCPClientCallback client2;
-    client2.Init(ctx.get(), { "127.0.0.1", 1236 }, { "127.0.0.1", 1234 }, 1);
-    client2.Test();
+    for (int i = 0; i < 6; ++i) {
+        auto client = std::make_unique<KCPClient>(i);
+        std::thread([&ctx, p = client.get(), port = 1235 + i, i] () mutable {
+            p->Init(ctx.get(), { "127.0.0.1", (uint16_t)port }, { "127.0.0.1", 1234 }, i);
+            p->Test();
+        }).detach();
+
+        clients.emplace_back(std::move(client));
+    }
 
     std::cin.get();
 }

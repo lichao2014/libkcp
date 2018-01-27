@@ -42,7 +42,7 @@ uint32_t Now32() noexcept {
 }
 }
 
-UDPAddress::UDPAddress(const char *ip4, uint16_t port, uint16_t conv)
+IP4Address::IP4Address(const char *ip4, uint16_t port, uint16_t conv)
     : ip4(0)
     , port(port)
     , conv(conv) {
@@ -51,6 +51,6 @@ UDPAddress::UDPAddress(const char *ip4, uint16_t port, uint16_t conv)
     }
 }
 
-std::string UDPAddress::ip4_string() const noexcept {
+std::string IP4Address::ip4_string() const noexcept {
     return IP4ToString(ip4);
 }
