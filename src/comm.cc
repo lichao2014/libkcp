@@ -40,6 +40,10 @@ namespace kcp {
 uint32_t Now32() noexcept {
     return static_cast<uint32_t>(Now64());
 }
+
+int32_t TimeDiff(uint32_t later, uint32_t earlier) noexcept {
+    return later - earlier;
+}
 }
 
 IP4Address::IP4Address(const char *ip4, uint16_t port, uint16_t conv)

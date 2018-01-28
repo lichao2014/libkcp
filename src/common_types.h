@@ -22,6 +22,7 @@ constexpr size_t kIPHeaderSize = 20;
 constexpr size_t kUDPHeadSize = 8;
 constexpr size_t kKCPHeadSize = 24;
 constexpr size_t kKCPMTUDefault = kEthMTU - kIPHeaderSize - kUDPHeadSize - kKCPHeadSize;
+constexpr size_t kDefaultRecvSize = 1024 * 64;
 
 struct KCPConfig {
     int mtu = kKCPMTUDefault;
@@ -62,6 +63,8 @@ union IP4Address {
 };
 
 uint32_t Now32() noexcept;
+
+int32_t TimeDiff(uint32_t later, uint32_t earlier) noexcept;
 
 class TaskInterface {
 protected:

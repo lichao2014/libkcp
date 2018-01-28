@@ -4,7 +4,7 @@
 #include "kcp_interface.h"
 #include "kcp_proxy.h"
 #include "udp_interface.h"
-
+#include "lock_ptr.h"
 
 namespace kcp {
 class KCPContext : public KCPContextInterface {
@@ -25,7 +25,7 @@ public:
                                                     const KCPServerConfig& config) override;
 private:
     std::shared_ptr<IOContextInterface> io_ctx_;
-    KCPProxy proxy_;
+    LockPtr<KCPProxy, std::mutex> proxy_;
 };
 }
 

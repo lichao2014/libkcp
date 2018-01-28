@@ -1,9 +1,11 @@
 #include "asio_udp.h"
 
+#include <iostream>
+
 using namespace kcp;
 
 namespace {
-constexpr uint32_t kWaitForPrecision = 10;
+constexpr uint32_t kWaitForPrecision = 8;
 
 bool Address2Endpoint(const IP4Address& from,
                       boost::asio::ip::udp::endpoint *to) {
@@ -59,8 +61,10 @@ void IOContextThread::Start() {
             if (0 == delay) {
                 run_one();
             } else if (delay < kWaitForPrecision) {
+                //std::clog << "poll delay=" << delay << std::endl;
                 poll();
             } else {
+                //std::clog << "run_for delay=" << delay << std::endl;
                 run_for(std::chrono::milliseconds(delay));
             }
         }
@@ -120,8 +124,10 @@ uint32_t IOContextThread::RunTasks() {
 
     while (!tasks_.empty()) {
         auto task_pair = tasks_.begin()->second;
-        if (now < tasks_.begin()->first) {
-            return tasks_.begin()->first - now;
+
+        int32_t diff = TimeDiff(tasks_.begin()->first, now);
+        if (diff > 0) {
+            return diff;
         }
 
         tasks_.erase(tasks_.begin());
@@ -204,8 +210,11 @@ bool AsioUDP::Bind(const IP4Address& addr) {
     return true;
 }
 
-bool AsioUDP::Open(size_t recv_size, UDPCallback *cb) {
-    recv_buf_.resize(recv_size);
+bool AsioUDP::Open(UDPCallback *cb) {
+    if (0 == recv_buf_size_) {
+        return false;
+    }
+
     cb_ = cb;
     closed_ = false;
 
@@ -227,6 +236,12 @@ void AsioUDP::Close() {
     cb_ = nullptr;
 
     io_ctx_->CancelTask(this);
+}
+
+void AsioUDP::SetRecvBufSize(size_t recv_size) {
+    if (recv_size > recv_buf_size_) {
+        recv_buf_size_ = recv_size;
+    }
 }
 
 bool AsioUDP::Send(const IP4Address& to, const char *buf, size_t len) {
@@ -278,6 +293,12 @@ void AsioUDP::TryStartWrite() {
 }
 
 void AsioUDP::StartRead() {
+    // TODO :
+    // fix bug : changing recv buf size will lost data
+    if (recv_buf_.size() < recv_buf_size_) {
+        recv_buf_.resize(recv_buf_size_);
+    }
+
     socket_.async_receive_from(
         boost::asio::buffer(recv_buf_),
         peer_,

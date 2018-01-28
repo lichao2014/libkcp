@@ -5,16 +5,16 @@ using namespace kcp;
 
 class KCPMux::UDPAdapter : public UDPInterface {
 public:
-    UDPAdapter(std::shared_ptr<KCPMux> proxy, const StreamKey& key)
-        : proxy_(proxy)
+    UDPAdapter(std::shared_ptr<KCPMux> mux, const StreamKey& key)
+        : mux_(mux)
         , key_(key) {}
 
     ~UDPAdapter() {
-        proxy_->by_key_streams_.erase(key_);
-        proxy_.reset();
+        mux_->by_key_streams_.erase(key_);
+        mux_.reset();
     }
 
-    bool Open(size_t recv_size, UDPCallback *cb) override {
+    bool Open(UDPCallback *cb) override {
         cb_ = cb;
         return true;
     }
@@ -23,29 +23,44 @@ public:
         cb_ = nullptr;
     }
 
+    void SetRecvBufSize(size_t recv_size) override {
+        mux_->SetRecvBufSize(recv_size);
+    }
+
     bool Send(const IP4Address& to, const char *buf, size_t len) override {
-        return proxy_->udp_->Send(to, buf, len);
+        return mux_->Send(to, buf, len);
     }
 
     const IP4Address& local_address() const override {
-        return  proxy_->udp_->local_address();
+        return  mux_->local_address();
     }
 
     ExecutorInterface *executor() override {
-        return  proxy_->udp_->executor();
+        return  mux_->executor();
     }
 private:
     friend class KCPMux;
 
-    std::shared_ptr<KCPMux> proxy_;
+    std::shared_ptr<KCPMux> mux_;
     StreamKey key_;
     UDPCallback *cb_ = nullptr;
 };
 
-//static
+// static
 std::shared_ptr<KCPMux>
-KCPMux::Create(std::shared_ptr<UDPInterface> udp) {
-    return { new KCPMux(udp), [](KCPMux *p) { delete p; } };
+KCPMux::Create(std::shared_ptr<UDPInterface> udp, bool bind_callback) {
+    std::shared_ptr<KCPMux> mux{ new KCPMux(udp), [](KCPMux *p) { delete p; } };
+    if (mux && bind_callback && !mux->BindUDPCallback()) {
+        return nullptr;
+    }
+
+    return mux;
+}
+
+KCPMux::~KCPMux() {
+    if (udp_callback_binded_ && udp_) {
+        udp_->Close();
+    }
 }
 
 std::shared_ptr<UDPInterface>
@@ -60,6 +75,37 @@ KCPMux::AddUDPFilter(const StreamKey& key) {
     }
 
     return udp;
+}
+
+bool KCPMux::BindUDPCallback() {
+    if (!udp_->Open(this)) {
+        return false;
+    }
+
+    udp_callback_binded_ = true;
+    return true;
+}
+
+bool KCPMux::Open(UDPCallback *cb) {
+    return true;
+}
+
+void KCPMux::Close() {}
+
+void KCPMux::SetRecvBufSize(size_t recv_size) {
+    udp_->SetRecvBufSize(recv_size);
+}
+
+bool KCPMux::Send(const IP4Address& to, const char *buf, size_t len) {
+    return udp_->Send(to, buf, len);
+}
+
+const IP4Address& KCPMux::local_address() const {
+    return udp_->local_address();
+}
+
+ExecutorInterface *KCPMux::executor() {
+    return udp_->executor();
 }
 
 bool KCPMux::OnRecvUDP(const IP4Address& from, const char *buf, size_t len) {
@@ -102,9 +148,8 @@ KCPProxy::AddMux(IOContextInterface *io_ctx, const IP4Address& addr) {
         return nullptr;
     }
 
-    auto new_mux = KCPMux::Create(udp);
+    auto new_mux = udp->executor()->Invoke(&KCPMux::Create, udp, true);
     if (new_mux) {
-        udp->Open(1024 * 64, new_mux.get());
         by_address_muxes_.insert_or_assign(addr, new_mux);
     }
 
@@ -112,7 +157,9 @@ KCPProxy::AddMux(IOContextInterface *io_ctx, const IP4Address& addr) {
 }
 
 std::shared_ptr<UDPInterface>
-KCPProxy::AddUDPFilter(IOContextInterface *io_ctx,const IP4Address& addr, uint32_t conv) {
+KCPProxy::AddUDPFilter(IOContextInterface *io_ctx,
+                       const IP4Address& addr,
+                       uint32_t conv) {
     auto mux = AddMux(io_ctx, addr);
     if (!mux) {
 

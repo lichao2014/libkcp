@@ -68,8 +68,6 @@ public:
     virtual ExecutorInterface *executor() = 0;
 };
 
-constexpr size_t kDefaultRecvSize = 1024 * 64;
-
 struct KCPServerConfig : KCPConfig {
     size_t recv_size = kDefaultRecvSize;
 };

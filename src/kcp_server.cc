@@ -5,13 +5,15 @@
 using namespace kcp;
 
 bool KCPServer::Start(KCPServerCallback *cb) {
-    if (!udp_->Open(config_.recv_size, this)) {
+    udp_->SetRecvBufSize(config_.recv_size);
+
+    if (!udp_->Open(this)) {
         return false;
     }
 
     cb_ = cb;
     stopped_ = false;
-    proxy_ = KCPMux::Create(udp_);
+    proxy_ = KCPMux::Create(udp_, false);
 
     return true;
 }

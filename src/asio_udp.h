@@ -38,8 +38,9 @@ class AsioUDP : public UDPInterface
               , public std::enable_shared_from_this<AsioUDP> {
 public:
     // udp interface
-    bool Open(size_t recv_size, UDPCallback *cb) override;
+    bool Open(UDPCallback *cb) override;
     void Close() override;
+    void SetRecvBufSize(size_t recv_size) override;
     bool Send(const IP4Address& to, const char *buf, size_t len) override;
     const IP4Address& local_address() const override;
     ExecutorInterface *executor() override;
@@ -59,12 +60,16 @@ private:
     void ReadCallback(std::size_t bytes_transferred);
     bool ErrorCallback(const boost::system::error_code& ec);
 
+    mutable boost::asio::ip::udp::socket socket_;
     std::queue<WriteReqPtr> write_req_queue_;
+
     std::vector<char> recv_buf_;
     boost::asio::ip::udp::endpoint peer_;
-    mutable boost::asio::ip::udp::socket socket_;
-    IP4Address address_;
+    size_t recv_buf_size_ = kDefaultRecvSize;
+
     std::shared_ptr<IOContextThread> io_ctx_;
+
+    IP4Address address_;
     UDPCallback *cb_ = nullptr;
     bool in_writing_ = false;
     bool closed_ = true;

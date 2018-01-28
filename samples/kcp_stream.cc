@@ -1,40 +1,119 @@
 #include <iostream>
+#include <random>
 
 #include "kcp_interface.h"
-#include "kcp_log.h"
+#include "logging.h"
+
+template<size_t N = 8 * 1024>
+union TimestampBuf {
+    struct {
+        uint32_t timestamp;
+        uint32_t seq;
+    };
+
+    char data[N];
+};
 
 class KCPStreamTestCallback : public kcp::KCPStreamCallback {
 public:
-    virtual void OnRecvKCP(const char *buf, size_t size) {
+    KCPStreamTestCallback(int id, kcp::KCPContextInterface* ctx, kcp::IP4Address& a, kcp::IP4Address& b, uint32_t conv)
+        : id_(id)
+        , stream_(ctx->CreateStream(a, b, conv)) {
 
+        kcp::KCPConfig config;
+        config.interval = 5;
+        config.nocwnd = true;
+        config.nodelay = true;
+        config.resend = 2;
+
+        stream_->Open(config, this);
     }
 
-    virtual bool OnError(const std::error_code& ec) {
+    bool OnError(const std::error_code& ec) override {
         return false;
+    }
+protected:
+    int id_;
+    std::unique_ptr<kcp::KCPStreamInterface> stream_;
+};
+
+class KCPStreamSendCallback : public KCPStreamTestCallback {
+public:
+    using KCPStreamTestCallback::KCPStreamTestCallback;
+
+    void Test() {
+        TimestampBuf<> buf;
+        buf.timestamp = kcp::Now32();
+        buf.seq = send_seq_++;
+        stream_->Write(buf.data, sizeof buf);
+    }
+
+    virtual void OnRecvKCP(const char *buf, size_t size) {
+        auto tb = reinterpret_cast<const TimestampBuf<>*>(buf);
+        //assert(tb->seq == recv_seq_++);
+
+        std::clog << "id=" << id_ 
+            << ",ttl=" << kcp::Now32() - tb->timestamp << std::endl;
+
+        Test();
+    }
+
+private:
+    uint32_t send_seq_ = 0;
+    uint32_t recv_seq_ = 0;
+};
+
+class KCPStreamRecvCallback : public KCPStreamTestCallback {
+public:
+    using KCPStreamTestCallback::KCPStreamTestCallback;
+
+    virtual void OnRecvKCP(const char *buf, size_t size) {
+        stream_->Write(buf, size);
     }
 };
 
-int main() {
-    using namespace kcp;
+class KCPStreamTest {
+public:
+    KCPStreamTest(int id, kcp::KCPContextInterface* ctx, kcp::IP4Address& a, kcp::IP4Address& b, uint32_t conv)
+        : sender_(id, ctx, a, b, conv)
+        , recver_(id, ctx, b, a, conv) {}
 
-    LogMessage::SetEnabled(true);
+    void Test() {
+        sender_.Test();
+    }
+private:
+    KCPStreamSendCallback sender_;
+    KCPStreamRecvCallback recver_;
+};
 
-    auto ctx = KCPContextInterface::Create();
+void Test() {
+    auto ctx = kcp::KCPContextInterface::Create();
     ctx->Start();
 
-    IP4Address a{ "127.0.0.1", 3445 };
-    IP4Address b{ "127.0.0.1", 3446 };
+    std::vector<std::thread> tg;
 
-    auto s1 = ctx->CreateStream(a, b, 1);
-    auto s2 = ctx->CreateStream(b, a, 1);
+    for (int i = 0; i < 1; ++i) {
+        tg.emplace_back([&ctx, i] {
+            kcp::IP4Address a{ "127.0.0.1", (uint16_t)(4455 + i) };
+            kcp::IP4Address b{ "127.0.0.1", (uint16_t)(4456 + i) };
 
-    KCPStreamTestCallback cb1;
-    KCPStreamTestCallback cb2;
+            KCPStreamTest test(i, ctx.get(), a, b, i);
+            test.Test();
 
-    s1->Open({}, &cb1);
-    s2->Open({}, &cb2);
+            std::default_random_engine e;
+            std::uniform_int<size_t> u(1, 60);
 
-    s1->Write("12", 2);
+            std::this_thread::sleep_for(std::chrono::seconds(u(e)));
+        });
+    }
 
-    std::cin.get();
+    for (auto&& t : tg) {
+        t.join();
+    }
+}
+
+int main() {
+    for (int i = 0; i < 64; ++i) {
+        Test();
+    }
 }

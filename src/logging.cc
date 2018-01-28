@@ -1,4 +1,4 @@
-#include "kcp_log.h"
+#include "logging.h"
 #include "common_types.h"
 
 #include <iostream>
@@ -62,33 +62,33 @@ LogLevel LogMessage::min_log_level_ = LogLevel::kDebug;
 LogSinkInterface *LogMessage::sink_ = nullptr;
 
 LogMessage::LogMessage(LogLevel level, const char *file, size_t line)
-    : stream_(buf_.data(), buf_.size())
+    : stream_()
     , level_(level) {
     if (!Loggable(level)) {
         return;
     }
 
     if (level_print_) {
-        stream_ << ToString(level) << '|';
+        stream() << ToString(level) << '|';
     }
 
     if (thread_print_) {
-        stream_ << std::this_thread::get_id() << '|';
+        stream() << std::this_thread::get_id() << '|';
     }
 
     if (timestamp_print_) {
-        stream_ << Now32() << '|';
+        stream() << Now32() << '|';
     }
 
     if (file_and_line_print_) {
-        stream_ << file << ',' << line << '|';
+        stream() << file << ',' << line << '|';
     }
 }
 
 LogMessage::~LogMessage() {
     if (sink_) {
-        stream_ << std::ends;
-        sink_->OnLog(buf_.data());
+        stream() << std::ends;
+        sink_->OnLog(stream_.data());
     }
 }
 

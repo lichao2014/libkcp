@@ -1,5 +1,5 @@
-#ifndef _KCP_LOG_H_INCLUDED
-#define _KCP_LOG_H_INCLUDED
+#ifndef _KCP_LOGGING_H_INCLUDED
+#define _KCP_LOGGING_H_INCLUDED
 
 #include <array>
 #include <strstream>
@@ -18,6 +18,14 @@ protected:
     virtual ~LogSinkInterface() = default;
 public:
     virtual void OnLog(const char *msg) = 0;
+};
+
+template<typename Buffer>
+struct BufferStream : Buffer, std::ostrstream {
+    template<typename ... Args>
+    BufferStream()
+        : Buffer(std::forward<Args>(args)...)
+        , std::ostrstream(data(), size()) {}
 };
 
 class LogMessage {
@@ -47,21 +55,20 @@ private:
     static LogLevel min_log_level_;
     static LogSinkInterface *sink_;
 
-    std::ostrstream stream_;
     LogLevel level_;
-    std::array<char, kLogMaxSize> buf_;
+    BufferStream<std::array<char, kLogMaxSize>> stream_;
 };
 
 class LogMessageVoidify {
 public:
-    LogMessageVoidify() = default;
-    void operator &(std::ostream&) {}
+    constexpr LogMessageVoidify() = default;
+    constexpr void operator &(std::ostream&) {}
 };
 }
 
-#define KCP_LOG(lvl)                                            \
-    !kcp::LogMessage::Loggable(kcp::LogLevel::lvl)              \
-    ? (void)0 : LogMessageVoidify() &                           \
-    LogMessage(kcp::LogLevel::lvl, __FILE__, __LINE__).stream()
+#define KCP_LOG(lvl)                                                \
+    !kcp::LogMessage::Loggable(kcp::LogLevel::lvl)                  \
+    ? (void)0 : kcp::LogMessageVoidify() &                          \
+    kcp::LogMessage(kcp::LogLevel::lvl, __FILE__, __LINE__).stream()
 
-#endif // !_KCP_LOG_H_INCLUDED
+#endif // !_KCP_LOGGING_H_INCLUDED

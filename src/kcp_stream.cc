@@ -1,5 +1,5 @@
 #include "kcp_stream.h"
-#include "kcp_log.h"
+#include "logging.h"
 
 using namespace kcp;
 
@@ -38,7 +38,8 @@ bool KCPStream::Open(const KCPConfig& config, KCPStreamCallback *cb) {
         return false;
     }
 
-    return udp_->Open(config.mtu, this);
+    udp_->SetRecvBufSize(config.mtu);
+    return udp_->Open(this);
 }
 
 void KCPStream::Close() {
@@ -138,13 +139,10 @@ uint32_t KCPStream::OnRun(uint32_t now) {
         return kNotContinue;
     }
 
-    uint32_t ms = api_.Check(now);
-    uint32_t delay = 1;
-
-    if (ms <= now) {
+    int32_t delay = TimeDiff(api_.Check(now), now);
+    if (delay <= 0) {
         api_.Update(now);
-    } else {
-        delay = ms - now;
+        delay = 1;
     }
 
     return delay;
