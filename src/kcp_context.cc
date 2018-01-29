@@ -26,7 +26,7 @@ std::unique_ptr<KCPStreamInterface>
 KCPContext::CreateStream(const IP4Address& addr,
                          const IP4Address& peer,
                          uint32_t conv) {
-    auto udp = proxy_->AddUDPFilter(io_ctx_.get(), peer, conv);
+    auto udp = proxy_->AddUDPFilter(io_ctx_.get(), addr, peer, conv);
     if (!udp) {
         return nullptr;
     }

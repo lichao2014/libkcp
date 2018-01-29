@@ -54,6 +54,7 @@ public:
     std::shared_ptr<KCPMux> AddMux(IOContextInterface *io_ctx, const IP4Address& addr);
     std::shared_ptr<UDPInterface> AddUDPFilter(IOContextInterface *io_ctx,
                                                const IP4Address& addr,
+                                               const IP4Address& peer,
                                                uint32_t conv);
     bool IsMuxAddress(const IP4Address& addr) const;
 private:

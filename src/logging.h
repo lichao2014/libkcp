@@ -23,7 +23,7 @@ public:
 template<typename Buffer>
 struct BufferStream : Buffer, std::ostrstream {
     template<typename ... Args>
-    BufferStream()
+    BufferStream(Args&& ... args)
         : Buffer(std::forward<Args>(args)...)
         , std::ostrstream(data(), size()) {}
 };

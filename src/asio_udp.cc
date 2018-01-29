@@ -270,21 +270,19 @@ ExecutorInterface *AsioUDP::executor() {
 
 void AsioUDP::TryStartWrite() {
     if (!in_writing_ && !write_req_queue_.empty()) {
-        WriteReqPtr req = std::move(write_req_queue_.front());
-        write_req_queue_.pop();
+        auto req = write_req_queue_.front().get();
 
-        WriteReq *req_ptr = req.get();
         socket_.async_send_to(
-            boost::asio::buffer(req_ptr->buf(), req_ptr->len()),
-            req_ptr->peer,
+            boost::asio::buffer(req->buf(), req->len()),
+            req->peer,
 
-            [sp = shared_from_this(), req = std::move(req)]
+            [sp = shared_from_this()]
             (const boost::system::error_code& ec, std::size_t bytes_transferred) mutable {
                 if (ec && sp->ErrorCallback(ec)) {
                     return;
                 }
 
-                sp->WriteCallback(std::move(req), bytes_transferred);
+                sp->WriteCallback(bytes_transferred);
             }
         );
 
@@ -316,10 +314,11 @@ void AsioUDP::StartRead() {
     );
 }
 
-void AsioUDP::WriteCallback(WriteReqPtr req, std::size_t bytes_transferred) {
-    if (req->len() > bytes_transferred) {
-        req->offset += bytes_transferred;
-        write_req_queue_.push(std::move(req));
+void AsioUDP::WriteCallback(std::size_t bytes_transferred) {
+    if (write_req_queue_.front()->len() > bytes_transferred) {
+        write_req_queue_.front()->offset += bytes_transferred;
+    } else {
+        write_req_queue_.pop();
     }
 
     in_writing_ = false;

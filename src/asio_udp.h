@@ -56,7 +56,7 @@ private:
     bool Bind(const IP4Address& addr);
     void TryStartWrite();
     void StartRead();
-    void WriteCallback(WriteReqPtr req, std::size_t bytes_transferred);
+    void WriteCallback(std::size_t bytes_transferred);
     void ReadCallback(std::size_t bytes_transferred);
     bool ErrorCallback(const boost::system::error_code& ec);
 

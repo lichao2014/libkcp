@@ -159,6 +159,7 @@ KCPProxy::AddMux(IOContextInterface *io_ctx, const IP4Address& addr) {
 std::shared_ptr<UDPInterface>
 KCPProxy::AddUDPFilter(IOContextInterface *io_ctx,
                        const IP4Address& addr,
+                       const IP4Address& peer,
                        uint32_t conv) {
     auto mux = AddMux(io_ctx, addr);
     if (!mux) {
@@ -166,7 +167,7 @@ KCPProxy::AddUDPFilter(IOContextInterface *io_ctx,
         return nullptr;
     }
 
-    StreamKey key(addr, conv);
+    StreamKey key(peer, conv);
     return mux->AddUDPFilter(key);
 }
 
