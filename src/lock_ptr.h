@@ -54,11 +54,11 @@ public:
         return { mu_, &value_ };
     }
 
-    auto operator->() {
+    decltype(auto) operator->() {
         return get(use_unique_lock);
     }
 
-    auto operator->() const {
+    decltype(auto) operator->() const {
         return get(use_unique_lock);
     }
 

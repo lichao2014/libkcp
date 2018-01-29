@@ -1,5 +1,7 @@
 #include <iostream>
 #include <random>
+#include <type_traits>
+#include <algorithm>
 
 #include "kcp_interface.h"
 #include "logging.h"
@@ -19,12 +21,14 @@ public:
     KCPStreamTestCallback(int id, kcp::KCPContextInterface* ctx, kcp::IP4Address& a, kcp::IP4Address& b, uint32_t conv)
         : id_(id)
         , stream_(ctx->CreateStream(a, b, conv)) {
+        //assert(stream_);
 
         kcp::KCPConfig config;
         config.interval = 5;
-        config.nocwnd = true;
+        config.nocwnd = false;
         config.nodelay = true;
         config.resend = 2;
+        config.rcvwnd = 64;
 
         stream_->Open(config, this);
     }
@@ -52,8 +56,8 @@ public:
         auto tb = reinterpret_cast<const TimestampBuf<>*>(buf);
         //assert(tb->seq == recv_seq_++);
 
-        std::clog << "id=" << id_ 
-            << ",ttl=" << kcp::Now32() - tb->timestamp << std::endl;
+        //std::clog << "id=" << id_ 
+            //<< ",ttl=" << kcp::Now32() - tb->timestamp << std::endl;
 
         Test();
     }
@@ -92,10 +96,10 @@ void Test() {
 
     std::vector<std::thread> tg;
 
-    for (int i = 0; i < 1; ++i) {
+    for (int i = 0; i < 4; ++i) {
         tg.emplace_back([&ctx, i] {
-            kcp::IP4Address a{ "127.0.0.1", (uint16_t)(4455 + i) };
-            kcp::IP4Address b{ "127.0.0.1", (uint16_t)(4456 + i) };
+            kcp::IP4Address a{ "127.0.0.1", (uint16_t)(7000 + 2 * i) };
+            kcp::IP4Address b{ "127.0.0.1", (uint16_t)(7001 + 2 * i) };
 
             KCPStreamTest test(i, ctx.get(), a, b, i);
             test.Test();
@@ -113,7 +117,17 @@ void Test() {
 }
 
 int main() {
-    for (int i = 0; i < 64; ++i) {
-        Test();
+    auto ctx = kcp::KCPContextInterface::Create(8);
+    ctx->Start();
+
+    std::vector<std::unique_ptr<KCPStreamTest>> tests;
+    for (int i = 0; i < 64 + 32; ++i) {
+        kcp::IP4Address a{ "127.0.0.1", (uint16_t)(6000 + i) };
+        kcp::IP4Address b{ "127.0.0.1", (uint16_t)(6001 + i) };
+        auto test = std::make_unique<KCPStreamTest>(i, ctx.get(), a, b, i);
+        test->Test();
+        tests.push_back(std::move(test));
     }
+
+    std::cin.get();
 }

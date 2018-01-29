@@ -60,6 +60,12 @@ union IP4Address {
 
     IP4Address(const char *str, uint16_t port, uint16_t conv = 0);
     std::string ip4_string() const noexcept;
+
+    struct Hasher {
+        constexpr size_t operator() (const IP4Address& key) const noexcept {
+            return key.u64;
+        }
+    };
 };
 
 uint32_t Now32() noexcept;

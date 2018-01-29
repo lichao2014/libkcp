@@ -9,12 +9,13 @@
 #include "boost/asio.hpp"
 
 #include "udp_interface.h"
+#include "asio_buf.h"
 
 namespace kcp {
 class IOContextThread : public boost::asio::io_context
                       , public ExecutorInterface {
 public:
-    IOContextThread() : thread_(), work_(*this) {}
+    IOContextThread() : thread_(), work_(*this), timer_(*this) {}
     ~IOContextThread() { Stop(); }
 
     void Start();
@@ -27,8 +28,11 @@ public:
 private:
     uint32_t RunTasks();
     void CancelAllTasks();
+    void StartTimer();
+    void StopTimer();
 
     std::thread thread_;
+    boost::asio::high_resolution_timer timer_;
     boost::asio::io_context::work work_;
 
     std::multimap<uint32_t, std::pair<void *, TaskInterface *>> tasks_;
@@ -50,9 +54,6 @@ private:
     explicit AsioUDP(std::shared_ptr<IOContextThread> io_ctx);
     ~AsioUDP() { Close(); }
 
-    class WriteReq;
-    using WriteReqPtr = std::unique_ptr<WriteReq, void(*)(WriteReq *)>;
-
     bool Bind(const IP4Address& addr);
     void TryStartWrite();
     void StartRead();
@@ -61,7 +62,9 @@ private:
     bool ErrorCallback(const boost::system::error_code& ec);
 
     mutable boost::asio::ip::udp::socket socket_;
-    std::queue<WriteReqPtr> write_req_queue_;
+    WriteBuffers write_bufs_;
+    BufferList in_writing_buf_;
+    boost::asio::ip::udp::endpoint in_writing_peer_;
 
     std::vector<char> recv_buf_;
     boost::asio::ip::udp::endpoint peer_;

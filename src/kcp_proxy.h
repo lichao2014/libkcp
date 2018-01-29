@@ -8,12 +8,6 @@
 namespace kcp {
 using StreamKey = IP4Address;
 
-struct StreamKeyHasher {
-    constexpr size_t operator() (const StreamKey& key) const noexcept {
-        return key.u64;
-    }
-};
-
 class KCPMux : public UDPCallback
              , public UDPInterface
              , public std::enable_shared_from_this<KCPMux> {
@@ -42,12 +36,10 @@ private:
     std::shared_ptr<UDPInterface> udp_;
 
     class UDPAdapter;
-    std::unordered_map<StreamKey, UDPAdapter *, StreamKeyHasher> by_key_streams_;
+    std::unordered_map<StreamKey, UDPAdapter *, StreamKey::Hasher> by_key_streams_;
 
     bool udp_callback_binded_ = false;
 };
-
-using IP4AddressHasher = StreamKeyHasher;
 
 class KCPProxy {
 public:
@@ -58,7 +50,7 @@ public:
                                                uint32_t conv);
     bool IsMuxAddress(const IP4Address& addr) const;
 private:
-    std::unordered_map<IP4Address, std::weak_ptr<KCPMux>, IP4AddressHasher> by_address_muxes_;
+    std::unordered_map<IP4Address, std::weak_ptr<KCPMux>, IP4Address::Hasher> by_address_muxes_;
 };
 }
 

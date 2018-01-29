@@ -1,7 +1,7 @@
 #include <iostream>
 
 #include "kcp_interface.h"
-#include "kcp_log.h"
+#include "logging.h"
 
 class KCPClient : public kcp::KCPClientCallback {
 public:

@@ -5,7 +5,7 @@
 using namespace kcp;
 
 namespace {
-constexpr uint32_t kWaitForPrecision = 8;
+constexpr uint32_t kWaitForPrecision = 4;
 
 bool Address2Endpoint(const IP4Address& from,
                       boost::asio::ip::udp::endpoint *to) {
@@ -56,19 +56,8 @@ IOContextInterface::Create(size_t thread_num) {
 
 void IOContextThread::Start() {
     thread_ = std::thread([this] {
-        while (!stopped()) {
-            uint32_t delay = RunTasks();
-            if (0 == delay) {
-                run_one();
-            } else if (delay < kWaitForPrecision) {
-                //std::clog << "poll delay=" << delay << std::endl;
-                poll();
-            } else {
-                //std::clog << "run_for delay=" << delay << std::endl;
-                run_for(std::chrono::milliseconds(delay));
-            }
-        }
-
+        StartTimer();
+        run();
         CancelAllTasks();
     });
 }
@@ -78,6 +67,7 @@ void IOContextThread::Stop() {
         return;
     }
 
+    StopTimer();
     stop();
 
     if (thread_.joinable()) {
@@ -149,44 +139,27 @@ void IOContextThread::CancelAllTasks() {
     tasks_.clear();
 }
 
-class AsioUDP::WriteReq {
-public:
-    boost::asio::ip::udp::endpoint peer;
-    size_t offset;
-    size_t capacity;
-    char data[1];
-
-    char *buf() { return data + offset; }
-    const char *buf() const { return data + offset; }
-
-    size_t len() const { return capacity - offset; }
-
-    static WriteReqPtr New(const boost::asio::ip::udp::endpoint& peer,
-                           const char *buf,
-                           size_t len) {
-        return { NewRaw(peer, buf, len), &WriteReq::FreeRaw };
+void IOContextThread::StartTimer() {
+    uint32_t delay = RunTasks();
+    if (delay <= kWaitForPrecision) {
+        boost::asio::post(*this, [this] { StartTimer(); });
+        return;
     }
 
-    static WriteReq *NewRaw(const boost::asio::ip::udp::endpoint& peer,
-                            const char *buf,
-                            size_t len) {
-        WriteReq *req = reinterpret_cast<WriteReq *>(malloc(sizeof(WriteReq) + len));
-        if (req) {
-            new (req) WriteReq;
-            req->peer = peer;
-            req->offset = 0;
-            req->capacity = len;
-            memcpy(req->data, buf, len);
+    timer_.expires_from_now(std::chrono::milliseconds(delay));
+
+    timer_.async_wait([this](const boost::system::error_code& ec) {
+        if (ec) {
+            return;
         }
 
-        return req;
-    }
+        StartTimer();
+    });
+}
 
-    static void FreeRaw(WriteReq *req) {
-        req->~WriteReq();
-        free(req);
-    }
-};
+void IOContextThread::StopTimer() {
+    timer_.cancel();
+}
 
 AsioUDP::AsioUDP(std::shared_ptr<IOContextThread> io_ctx)
     : socket_(*io_ctx, boost::asio::ip::udp::v4())
@@ -249,12 +222,7 @@ bool AsioUDP::Send(const IP4Address& to, const char *buf, size_t len) {
         return false;
     }
 
-    boost::asio::ip::udp::endpoint peer;
-    if (!Address2Endpoint(to, &peer)) {
-        return false;
-    }
-
-    write_req_queue_.push(WriteReq::New(peer, buf, len));
+    write_bufs_.PutBuf(to, Buffer::New(len, buf));
     TryStartWrite();
 
     return true;
@@ -269,25 +237,42 @@ ExecutorInterface *AsioUDP::executor() {
 }
 
 void AsioUDP::TryStartWrite() {
-    if (!in_writing_ && !write_req_queue_.empty()) {
-        auto req = write_req_queue_.front().get();
-
-        socket_.async_send_to(
-            boost::asio::buffer(req->buf(), req->len()),
-            req->peer,
-
-            [sp = shared_from_this()]
-            (const boost::system::error_code& ec, std::size_t bytes_transferred) mutable {
-                if (ec && sp->ErrorCallback(ec)) {
-                    return;
-                }
-
-                sp->WriteCallback(bytes_transferred);
-            }
-        );
-
-        in_writing_ = true;
+    if (in_writing_) {
+        return;
     }
+
+    if (in_writing_buf_.Empty()) {
+        IP4Address peer;
+        if (!write_bufs_.GetBufs(&peer, &in_writing_buf_)) {
+            return;
+        }
+
+        if (!Address2Endpoint(peer, &in_writing_peer_)) {
+            // TODO:
+            // error callback
+            return;
+        }
+    }
+
+    if (in_writing_buf_.Empty()) {
+        return;
+    }
+
+    socket_.async_send_to(
+        in_writing_buf_,
+        in_writing_peer_,
+
+        [sp = shared_from_this()]
+        (const boost::system::error_code& ec, std::size_t bytes_transferred) mutable {
+            if (ec && sp->ErrorCallback(ec)) {
+                return;
+            }
+
+            sp->WriteCallback(bytes_transferred);
+        }
+    );
+
+    in_writing_ = true;
 }
 
 void AsioUDP::StartRead() {
@@ -315,12 +300,7 @@ void AsioUDP::StartRead() {
 }
 
 void AsioUDP::WriteCallback(std::size_t bytes_transferred) {
-    if (write_req_queue_.front()->len() > bytes_transferred) {
-        write_req_queue_.front()->offset += bytes_transferred;
-    } else {
-        write_req_queue_.pop();
-    }
-
+    in_writing_buf_.Cut(bytes_transferred);
     in_writing_ = false;
     TryStartWrite();
 }
